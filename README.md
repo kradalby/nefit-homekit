@@ -272,6 +272,8 @@ nefit-homekit/
 
 ## Testing
 
+### Unit Tests
+
 ```bash
 # Unit tests
 go test ./...
@@ -282,8 +284,9 @@ go test -cover ./...
 # With race detector
 go test -race ./...
 
-# Benchmarks
-go test -bench=. ./...
+# Using Nix
+nix run .#test        # Run tests with coverage
+nix run .#test-race   # Run with race detector
 ```
 
 Current coverage:
@@ -293,6 +296,33 @@ Current coverage:
 - `homekit`: All tests passing with race detector
 - `web`: All tests passing with race detector
 - `logging`: 95.0%
+
+### NixOS Integration Tests
+
+Automated tests validate the NixOS module:
+
+```bash
+# Run all checks
+nix flake check
+
+# Run specific test
+nix build .#checks.x86_64-linux.module-test
+nix build .#checks.x86_64-linux.integration-test
+
+# Interactive testing
+nix build .#checks.x86_64-linux.module-test.driverInteractive
+./result/bin/nixos-test-driver
+```
+
+Tests cover:
+- Service startup and lifecycle
+- Port accessibility (HAP 12345, Web 8080)
+- Environment variable configuration
+- Environment file loading
+- Security hardening validation
+- Multi-node configurations
+
+See [nix/README.md](nix/README.md) for detailed test documentation.
 
 ## License
 
