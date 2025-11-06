@@ -13,8 +13,8 @@ Builds the application using Nix on multiple platforms:
 
 **Steps:**
 1. Checkout code
-2. Install Nix with flakes enabled
-3. Setup Cachix for binary caching
+2. Install Nix (DeterminateSystems installer)
+3. Setup Magic Nix Cache (GitHub Actions cache)
 4. Build package with `nix build`
 5. Verify binary works
 6. Upload Linux binary as artifact
@@ -33,7 +33,7 @@ Runs Go unit tests and linting:
 - Runs on Ubuntu and macOS
 - Executes tests with coverage
 - Runs race detector
-- Uploads coverage to Codecov (Ubuntu only)
+- Uploads coverage report as artifact (Ubuntu only)
 
 **Lint Job:**
 - Runs on Ubuntu
@@ -69,24 +69,13 @@ Runs NixOS integration tests in VMs:
 
 ## Setup Requirements
 
-### Required Secrets
+### No Secrets Required!
 
-#### Optional (for caching):
-- `CACHIX_AUTH_TOKEN` - Cachix authentication token for binary cache
-  - Speeds up builds significantly
-  - Not required but highly recommended
-  - Get from: https://app.cachix.org
+All workflows use:
+- **DeterminateSystems Nix Installer** - Official Nix installer for CI
+- **Magic Nix Cache** - GitHub Actions cache integration (automatic)
 
-#### Optional (for coverage):
-- `CODECOV_TOKEN` - Codecov token for coverage uploads
-  - Get from: https://codecov.io
-  - Only used on Ubuntu builds
-
-### Setting Secrets
-
-1. Go to repository Settings → Secrets and variables → Actions
-2. Click "New repository secret"
-3. Add each secret with its token value
+No external services or tokens needed.
 
 ## Running Locally
 
@@ -111,13 +100,15 @@ nix flake check
 
 ## Caching Strategy
 
-Workflows use Cachix for binary caching:
-- **Public cache:** `nefit-homekit` (read-only for PRs)
-- **Push access:** Main branch and authorized users only
+Workflows use **Magic Nix Cache** from DeterminateSystems:
+- Automatic integration with GitHub Actions cache
+- No configuration needed
+- Free for public repositories
 - **Benefits:**
-  - Faster CI runs (downloads vs rebuilds)
-  - Reduced GitHub Actions minutes
-  - Better developer experience
+  - Faster CI runs (caches Nix store paths)
+  - Reduced build times
+  - No external services required
+  - Works seamlessly across workflow runs
 
 ## Status Badges
 
@@ -127,7 +118,6 @@ Add to README.md:
 [![Build](https://github.com/kradalby/nefit-homekit/actions/workflows/build.yml/badge.svg)](https://github.com/kradalby/nefit-homekit/actions/workflows/build.yml)
 [![Tests](https://github.com/kradalby/nefit-homekit/actions/workflows/test.yml/badge.svg)](https://github.com/kradalby/nefit-homekit/actions/workflows/test.yml)
 [![NixOS Tests](https://github.com/kradalby/nefit-homekit/actions/workflows/nixos-tests.yml/badge.svg)](https://github.com/kradalby/nefit-homekit/actions/workflows/nixos-tests.yml)
-[![codecov](https://codecov.io/gh/kradalby/nefit-homekit/branch/main/graph/badge.svg)](https://codecov.io/gh/kradalby/nefit-homekit)
 ```
 
 ## Troubleshooting
