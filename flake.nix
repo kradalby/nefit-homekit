@@ -134,6 +134,19 @@
         };
 
         packages.nefit-homekit = self.packages.${system}.default;
+
+        # NixOS tests
+        checks = {
+          module-test = import ./nix/test.nix {
+            inherit pkgs system;
+            inherit self;
+          };
+
+          integration-test = import ./nix/integration-test.nix {
+            inherit pkgs system;
+            inherit self;
+          };
+        };
       }
     ) // {
       # NixOS module
