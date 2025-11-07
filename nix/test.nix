@@ -15,6 +15,7 @@ pkgs.testers.runNixOSTest {
     # Enable the service with test configuration
     services.nefit-homekit = {
       enable = true;
+      package = self.packages.${system}.default;
 
       # Use environment variables for test configuration
       environment = {
