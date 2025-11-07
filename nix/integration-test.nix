@@ -26,6 +26,7 @@ pkgs.testers.runNixOSTest {
 
       services.nefit-homekit = {
         enable = true;
+        package = self.packages.${system}.default;
         environmentFile = "/etc/nefit-homekit/test.env";
 
         # Additional env vars that override or supplement the file
@@ -43,6 +44,7 @@ pkgs.testers.runNixOSTest {
 
       services.nefit-homekit = {
         enable = true;
+        package = self.packages.${system}.default;
         environment = {
           NEFITHK_NEFIT_SERIAL = "minimal-test";
           NEFITHK_NEFIT_ACCESS_KEY = "minimal-key";

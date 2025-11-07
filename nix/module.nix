@@ -11,8 +11,6 @@ in
 
     package = mkOption {
       type = types.package;
-      default = pkgs.nefit-homekit;
-      defaultText = literalExpression "pkgs.nefit-homekit";
       description = "The nefit-homekit package to use.";
     };
 
