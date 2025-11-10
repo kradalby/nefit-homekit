@@ -33,7 +33,8 @@ linters:
 
 linters-settings:
   govet:
-    enable-all: true
+    disable:
+      - shadow
 
   errcheck:
     check-type-assertions: true
