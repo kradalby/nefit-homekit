@@ -11,8 +11,8 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        # Go version - use latest available
-        go = pkgs.go;
+        # Go version - use latest 1.25.x
+        go = pkgs.go_1_25;
 
       in
       {
