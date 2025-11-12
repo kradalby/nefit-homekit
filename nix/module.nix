@@ -35,7 +35,7 @@ in
 
     environment = mkOption {
       type = types.attrsOf types.str;
-      default = {};
+      default = { };
       description = ''
         Environment variables to set for the service.
         These should use the NEFITHK_ prefix.
@@ -75,7 +75,7 @@ in
       createHome = true;
     };
 
-    users.groups.${cfg.group} = {};
+    users.groups.${cfg.group} = { };
 
     # Systemd service
     systemd.services.nefit-homekit = {
