@@ -4,9 +4,11 @@ package homekit
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/brutella/hap"
 	"github.com/brutella/hap/accessory"
+	homekitqr "github.com/kradalby/homekit-qr"
 	"github.com/kradalby/nefit-homekit/config"
 	"github.com/kradalby/nefit-homekit/events"
 	"go.uber.org/zap"
@@ -106,6 +108,9 @@ func New(cfg *config.Config, logger *zap.Logger, bus *events.Bus) (*Server, erro
 func (s *Server) Start() error {
 	s.logger.Info("starting homekit server")
 
+	// Generate and print QR code
+	s.printSetupQRCode()
+
 	// Subscribe to state update events
 	go s.handleStateUpdates()
 
@@ -124,6 +129,35 @@ func (s *Server) Start() error {
 
 	s.logger.Info("homekit server started successfully")
 	return nil
+}
+
+// printSetupQRCode generates and prints the HomeKit setup QR code to stdout.
+func (s *Server) printSetupQRCode() {
+	qrConfig := homekitqr.QRCodeConfig{
+		SetupURIConfig: homekitqr.SetupURIConfig{
+			PairingCode: s.cfg.HAPPin,
+			SetupID:     s.cfg.NefitSerial, // Use serial as setup ID
+			Category:    homekitqr.CategoryThermostat,
+		},
+	}
+
+	qrCode, err := homekitqr.GenerateQRTerminal(qrConfig)
+	if err != nil {
+		s.logger.Warn("failed to generate QR code", zap.Error(err))
+		return
+	}
+
+	separator := strings.Repeat("=", 60)
+	dashes := strings.Repeat("-", 60)
+
+	fmt.Printf("\n%s\n", separator)
+	fmt.Println("HomeKit Setup Information")
+	fmt.Println(separator)
+	fmt.Printf("Setup Code: %s\n", homekitqr.FormatPairingCode(s.cfg.HAPPin))
+	fmt.Println(dashes)
+	fmt.Println("Scan this QR code with your iPhone to add to HomeKit:")
+	fmt.Println(qrCode)
+	fmt.Printf("%s\n\n", separator)
 }
 
 // setupAccessoryCallbacks sets up callbacks for user interactions.

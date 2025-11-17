@@ -41,10 +41,21 @@ in
         The contents of this file will be passed to the service via the
         NEFITHK_TAILSCALE_AUTHKEY environment variable.
 
+        When set, this automatically enables Tailscale integration.
+
         This is more secure than putting the auth key in the environment
         or environmentFile options, as it allows using secrets management.
       '';
       example = "/run/secrets/tailscale-authkey";
+    };
+
+    tailscaleHostname = mkOption {
+      type = types.str;
+      default = "nefit-homekit";
+      description = ''
+        Hostname to use on the Tailscale network.
+        Only used when tailscaleAuthKeyFile is set.
+      '';
     };
 
     environment = mkOption {
@@ -92,6 +103,35 @@ in
       };
     };
 
+    hapPin = mkOption {
+      type = types.str;
+      default = "00102003";
+      description = ''
+        HomeKit setup PIN code (must be exactly 8 digits).
+        This is used to pair the accessory with HomeKit.
+      '';
+    };
+
+    storagePath = mkOption {
+      type = types.path;
+      default = "/var/lib/nefit-homekit";
+      description = "Directory for storing HAP pairing data and state.";
+    };
+
+    logLevel = mkOption {
+      type = types.enum [ "debug" "info" "warn" "error" ];
+      default = "info";
+      description = "Logging level for the service.";
+    };
+
+    logFormat = mkOption {
+      type = types.enum [ "json" "console" ];
+      default = "json";
+      description = "Logging format (json or console).";
+    };
+
+
+
     openFirewall = mkOption {
       type = types.bool;
       default = false;
@@ -134,6 +174,11 @@ in
         environment = cfg.environment // {
           NEFITHK_HAP_PORT = toString cfg.ports.hap;
           NEFITHK_WEB_PORT = toString cfg.ports.web;
+          NEFITHK_HAP_PIN = cfg.hapPin;
+          NEFITHK_HAP_STORAGE_PATH = cfg.storagePath;
+          NEFITHK_LOG_LEVEL = cfg.logLevel;
+          NEFITHK_LOG_FORMAT = cfg.logFormat;
+          NEFITHK_TAILSCALE_HOSTNAME = cfg.tailscaleHostname;
         };
 
         serviceConfig = {
@@ -153,7 +198,7 @@ in
           TimeoutStopSec = "30s";
 
           # Working directory and state
-          WorkingDirectory = "/var/lib/nefit-homekit";
+          WorkingDirectory = cfg.storagePath;
           StateDirectory = "nefit-homekit";
           StateDirectoryMode = "0700";
 
@@ -168,7 +213,7 @@ in
           ProtectHome = true;
           PrivateTmp = true;
           ReadWritePaths = [
-            "/var/lib/nefit-homekit"
+            cfg.storagePath
           ];
 
           # Capabilities

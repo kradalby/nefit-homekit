@@ -186,7 +186,6 @@ func TestConfigDefaults(t *testing.T) {
 		{"HAPPin", cfg.HAPPin, "00102003"},
 		{"HAPStoragePath", cfg.HAPStoragePath, "/var/lib/nefit-homekit"},
 		{"HAPPort", cfg.HAPPort, 12345},
-		{"TailscaleEnabled", cfg.TailscaleEnabled, false},
 		{"TailscaleHostname", cfg.TailscaleHostname, "nefit-homekit"},
 		{"WebPort", cfg.WebPort, 8080},
 		{"WebBindAddress", cfg.WebBindAddress, "0.0.0.0"},
@@ -209,12 +208,12 @@ func TestConfigDefaults(t *testing.T) {
 
 func TestValidate_XMPPTimings(t *testing.T) {
 	tests := []struct {
-		name               string
-		keepalive          time.Duration
-		reconnectBackoff   time.Duration
-		maxReconnectWait   time.Duration
-		wantErr            bool
-		errMsg             string
+		name             string
+		keepalive        time.Duration
+		reconnectBackoff time.Duration
+		maxReconnectWait time.Duration
+		wantErr          bool
+		errMsg           string
 	}{
 		{
 			name:             "keepalive too short",

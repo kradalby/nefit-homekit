@@ -112,7 +112,7 @@
             version = "0.1.0";
             src = ./.;
 
-            vendorHash = "sha256-1RSxaPmms7rRiMraclhwfnacCuWXsK1IsN3EqcN0vHA=";
+            vendorHash = "sha256-RG1fAtNrdvs2iou4nslxsWvE4QhcX4n7IhBvD5Gu7SI=";
 
             # Allow Go to auto-download the required toolchain version
             proxyVendor = true;

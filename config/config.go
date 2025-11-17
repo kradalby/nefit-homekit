@@ -22,7 +22,6 @@ type Config struct {
 	HAPPort        int    `env:"NEFITHK_HAP_PORT,default=12345"`
 
 	// Tailscale Configuration
-	TailscaleEnabled  bool   `env:"NEFITHK_TAILSCALE_ENABLED,default=false"`
 	TailscaleAuthKey  string `env:"NEFITHK_TAILSCALE_AUTHKEY"`
 	TailscaleHostname string `env:"NEFITHK_TAILSCALE_HOSTNAME,default=nefit-homekit"`
 

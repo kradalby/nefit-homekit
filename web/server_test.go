@@ -47,8 +47,8 @@ func TestNew(t *testing.T) {
 		t.Fatal("New() returned nil server")
 	}
 
-	if server.server == nil {
-		t.Fatal("server.server is nil")
+	if server.kraweb == nil {
+		t.Fatal("server.kraweb is nil")
 	}
 }
 

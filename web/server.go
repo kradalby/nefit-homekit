@@ -12,6 +12,8 @@ import (
 
 	"github.com/chasefleming/elem-go"
 	"github.com/chasefleming/elem-go/attrs"
+	homekitqr "github.com/kradalby/homekit-qr"
+	"github.com/kradalby/kra/web"
 	"github.com/kradalby/nefit-homekit/config"
 	"github.com/kradalby/nefit-homekit/events"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -26,14 +28,15 @@ const (
 
 // Server manages the web interface.
 type Server struct {
-	cfg    *config.Config
-	logger *zap.Logger
-	bus    *events.Bus
-	client *eventbus.Client
-	server *http.Server
-	mux    *http.ServeMux
-	ctx    context.Context
-	cancel context.CancelFunc
+	cfg     *config.Config
+	logger  *zap.Logger
+	bus     *events.Bus
+	client  *eventbus.Client
+	kraweb  *web.KraWeb
+	ctx     context.Context
+	cancel  context.CancelFunc
+	qrCode  string
+	setupID string
 
 	// Current state for SSE clients
 	mu           sync.RWMutex
@@ -62,56 +65,56 @@ func New(cfg *config.Config, logger *zap.Logger, bus *events.Bus) (*Server, erro
 		return nil, fmt.Errorf("failed to get eventbus client: %w", err)
 	}
 
-	mux := http.NewServeMux()
+	// Generate QR code
+	qrConfig := homekitqr.QRCodeConfig{
+		SetupURIConfig: homekitqr.SetupURIConfig{
+			PairingCode: cfg.HAPPin,
+			SetupID:     cfg.NefitSerial,
+			Category:    homekitqr.CategoryThermostat,
+		},
+	}
+	qrCodeStr, err := homekitqr.GenerateQRTerminal(qrConfig)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to generate QR code: %w", err)
+	}
+
+	// Create kraweb with Tailscale hostname always set
+	// If authkey is provided, Tailscale will be enabled
+	krawebServer := web.NewKraWeb(
+		cfg.TailscaleHostname,
+		cfg.TailscaleAuthKey,
+		fmt.Sprintf(":%d", cfg.WebPort),
+	)
 
 	s := &Server{
 		cfg:        cfg,
 		logger:     logger,
 		bus:        bus,
 		client:     client,
-		mux:        mux,
+		kraweb:     krawebServer,
 		ctx:        ctx,
 		cancel:     cancel,
+		qrCode:     qrCodeStr,
+		setupID:    cfg.NefitSerial,
 		sseClients: make(map[chan events.StateUpdateEvent]struct{}),
 	}
 
-	// Create HTTP server
-	s.server = &http.Server{
-		Addr:              fmt.Sprintf(":%d", cfg.WebPort),
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-
-	// Setup routes
-	s.setupRoutes()
+	// Register routes with kraweb
+	s.kraweb.Handle("/", http.HandlerFunc(s.handleIndex))
+	s.kraweb.Handle("/api/mode", http.HandlerFunc(s.handleSetMode))
+	s.kraweb.Handle("/api/temperature", http.HandlerFunc(s.handleSetTemperature))
+	s.kraweb.Handle("/events", http.HandlerFunc(s.handleSSE))
+	s.kraweb.Handle("/qrcode", http.HandlerFunc(s.handleQRCode))
+	s.kraweb.Handle("/debug/eventbus", http.HandlerFunc(s.handleEventBusDebug))
+	s.kraweb.Handle("/health", http.HandlerFunc(s.handleHealth))
+	s.kraweb.Handle("/metrics", promhttp.Handler())
 
 	logger.Info("web server created",
 		zap.Int("port", cfg.WebPort),
 	)
 
 	return s, nil
-}
-
-// setupRoutes configures all HTTP routes.
-func (s *Server) setupRoutes() {
-	// Main thermostat UI
-	s.mux.HandleFunc("/", s.handleIndex)
-
-	// SSE for real-time updates
-	s.mux.HandleFunc("/events", s.handleSSE)
-
-	// HTMX API endpoints
-	s.mux.HandleFunc("/api/temperature", s.handleSetTemperature)
-	s.mux.HandleFunc("/api/mode", s.handleSetMode)
-
-	// EventBus debugger
-	s.mux.HandleFunc("/debug/eventbus", s.handleEventBusDebug)
-
-	// Prometheus metrics
-	s.mux.Handle("/metrics", promhttp.Handler())
-
-	// Health check
-	s.mux.HandleFunc("/health", s.handleHealth)
 }
 
 // Start starts the web server and begins handling events.
@@ -121,15 +124,16 @@ func (s *Server) Start() error {
 	// Subscribe to state update events
 	go s.handleStateUpdates()
 
-	// Start HTTP server in background
+	// Start kraweb in background
 	go func() {
-		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		s.logger.Info("web interface",
+			zap.Int("port", s.cfg.WebPort),
+			zap.String("tailscale_hostname", s.cfg.TailscaleHostname),
+		)
+		if err := s.kraweb.ListenAndServe(); err != nil {
 			s.logger.Error("web server error", zap.Error(err))
 		}
 	}()
-
-	// Publish connection status
-	s.publishConnectionStatus(events.ConnectionStatusConnected, "")
 
 	s.logger.Info("web server started successfully")
 	return nil
@@ -364,6 +368,79 @@ func (s *Server) publishConnectionStatus(status events.ConnectionStatus, errMsg 
 	s.bus.PublishConnectionStatus(s.client, event)
 }
 
+// handleQRCode serves the HomeKit QR code page.
+func (s *Server) handleQRCode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	html := elem.Html(nil,
+		elem.Head(nil,
+			elem.Title(nil, elem.Text("HomeKit Setup QR Code")),
+			elem.Style(nil, elem.Text(`
+				body {
+					font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+					max-width: 800px;
+					margin: 50px auto;
+					padding: 20px;
+					text-align: center;
+				}
+				.qr-container {
+					background: white;
+					padding: 30px;
+					border-radius: 10px;
+					box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+					margin: 20px 0;
+				}
+				pre {
+					font-size: 10px;
+					line-height: 10px;
+					display: inline-block;
+					background: white;
+					padding: 10px;
+					border: 2px solid #007AFF;
+					border-radius: 5px;
+				}
+				.setup-code {
+					font-size: 32px;
+					font-weight: bold;
+					color: #007AFF;
+					margin: 20px 0;
+					letter-spacing: 2px;
+				}
+				.instructions {
+					color: #666;
+					margin: 20px 0;
+					line-height: 1.6;
+				}
+			`)),
+		),
+		elem.Body(nil,
+			elem.H1(nil, elem.Text("HomeKit Setup")),
+			elem.Div(attrs.Props{attrs.Class: "qr-container"},
+				elem.H2(nil, elem.Text("Setup Code")),
+				elem.Div(attrs.Props{attrs.Class: "setup-code"},
+					elem.Text(homekitqr.FormatPairingCode(s.cfg.HAPPin)),
+				),
+				elem.Div(attrs.Props{attrs.Class: "instructions"},
+					elem.P(nil, elem.Text("Scan this QR code with your iPhone's camera or Home app:")),
+				),
+				elem.Pre(nil, elem.Text(s.qrCode)),
+				elem.Div(attrs.Props{attrs.Class: "instructions"},
+					elem.P(nil, elem.Text("Or manually enter the setup code above in the Home app.")),
+				),
+			),
+		),
+	)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write([]byte(html.Render())); err != nil {
+		s.logger.Error("failed to write QR code response", zap.Error(err))
+	}
+}
+
 // Close gracefully shuts down the web server.
 func (s *Server) Close() error {
 	s.logger.Info("shutting down web server")
@@ -380,14 +457,6 @@ func (s *Server) Close() error {
 
 	// Cancel context to stop background goroutines
 	s.cancel()
-
-	// Gracefully shutdown HTTP server
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := s.server.Shutdown(shutdownCtx); err != nil {
-		s.logger.Warn("server shutdown error", zap.Error(err))
-	}
 
 	s.logger.Info("web server shut down complete")
 	return nil
@@ -443,13 +512,13 @@ func (s *Server) renderThermostatUI(state *events.StateUpdateEvent) string {
 						"hx-target": "#response",
 					},
 						elem.Input(attrs.Props{
-							attrs.Type:  "range",
-							attrs.Name:  "temperature",
-							attrs.Min:   "10",
-							attrs.Max:   "30",
-							attrs.Step:  "0.5",
-							attrs.Value: targetTemp,
-							attrs.ID:    "temp-slider",
+							attrs.Type:   "range",
+							attrs.Name:   "temperature",
+							attrs.Min:    "10",
+							attrs.Max:    "30",
+							attrs.Step:   "0.5",
+							attrs.Value:  targetTemp,
+							attrs.ID:     "temp-slider",
 							"hx-trigger": "change",
 						}),
 						elem.Div(attrs.Props{attrs.Class: "temp-value", attrs.ID: "target-temp"}, elem.Text(targetTemp+"°C")),
