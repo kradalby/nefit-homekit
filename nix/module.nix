@@ -94,8 +94,14 @@ in
     # Systemd service
     systemd.services.nefit-homekit = {
       description = "Nefit Easy HomeKit Bridge";
+      documentation = [ "https://github.com/kradalby/nefit-homekit" ];
+
+      # Network dependencies
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
+      requires = [ "network.target" ];
+
+      # Start automatically with the system
       wantedBy = [ "multi-user.target" ];
 
       environment = cfg.environment;
@@ -104,11 +110,27 @@ in
         Type = "simple";
         User = cfg.user;
         Group = cfg.group;
+
+        # Restart policy
         Restart = "on-failure";
         RestartSec = "10s";
+        RestartPreventExitStatus = [ 1 ];
+        StartLimitIntervalSec = "5min";
+        StartLimitBurst = 5;
 
-        # Working directory
+        # Timeouts
+        TimeoutStartSec = "60s";
+        TimeoutStopSec = "30s";
+
+        # Working directory and state
         WorkingDirectory = "/var/lib/nefit-homekit";
+        StateDirectory = "nefit-homekit";
+        StateDirectoryMode = "0700";
+
+        # Logging
+        StandardOutput = "journal";
+        StandardError = "journal";
+        SyslogIdentifier = "nefit-homekit";
 
         # Security hardening
         # Filesystem access
@@ -147,6 +169,14 @@ in
 
         # Process properties
         UMask = "0077";
+
+        # Additional security
+        ProtectProc = "invisible";
+        ProcSubset = "pid";
+        PrivateUsers = true;
+
+        # Nice level for better scheduling
+        Nice = 0;
       } // (optionalAttrs (cfg.tailscaleAuthKeyFile != null) {
         LoadCredential = "tailscale-authkey:${cfg.tailscaleAuthKeyFile}";
       }) // (optionalAttrs (cfg.environmentFile != null) {
