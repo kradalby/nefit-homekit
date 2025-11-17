@@ -33,29 +33,31 @@ in
       example = "/etc/nefit-homekit/env";
     };
 
-    tailscaleAuthKeyFile = mkOption {
-      type = types.nullOr types.path;
-      default = null;
-      description = ''
-        Path to a file containing the Tailscale auth key.
-        The contents of this file will be passed to the service via the
-        NEFITHK_TAILSCALE_AUTHKEY environment variable.
+    tailscale = {
+      authKeyFile = mkOption {
+        type = types.nullOr types.path;
+        default = null;
+        description = ''
+          Path to a file containing the Tailscale auth key.
+          The contents of this file will be passed to the service via the
+          NEFITHK_TAILSCALE_AUTHKEY environment variable.
 
-        When set, this automatically enables Tailscale integration.
+          When set, this automatically enables Tailscale integration.
 
-        This is more secure than putting the auth key in the environment
-        or environmentFile options, as it allows using secrets management.
-      '';
-      example = "/run/secrets/tailscale-authkey";
-    };
+          This is more secure than putting the auth key in the environment
+          or environmentFile options, as it allows using secrets management.
+        '';
+        example = "/run/secrets/tailscale-authkey";
+      };
 
-    tailscaleHostname = mkOption {
-      type = types.str;
-      default = "nefit-homekit";
-      description = ''
-        Hostname to use on the Tailscale network.
-        Only used when tailscaleAuthKeyFile is set.
-      '';
+      hostname = mkOption {
+        type = types.str;
+        default = "nefit-homekit";
+        description = ''
+          Hostname to use on the Tailscale network.
+          Only used when authKeyFile is set.
+        '';
+      };
     };
 
     environment = mkOption {
@@ -118,16 +120,18 @@ in
       description = "Directory for storing HAP pairing data and state.";
     };
 
-    logLevel = mkOption {
-      type = types.enum [ "debug" "info" "warn" "error" ];
-      default = "info";
-      description = "Logging level for the service.";
-    };
+    log = {
+      level = mkOption {
+        type = types.enum [ "debug" "info" "warn" "error" ];
+        default = "info";
+        description = "Logging level for the service.";
+      };
 
-    logFormat = mkOption {
-      type = types.enum [ "json" "console" ];
-      default = "json";
-      description = "Logging format (json or console).";
+      format = mkOption {
+        type = types.enum [ "json" "console" ];
+        default = "json";
+        description = "Logging format (json or console).";
+      };
     };
 
 
@@ -176,9 +180,9 @@ in
           NEFITHK_WEB_PORT = toString cfg.ports.web;
           NEFITHK_HAP_PIN = cfg.hapPin;
           NEFITHK_HAP_STORAGE_PATH = cfg.storagePath;
-          NEFITHK_LOG_LEVEL = cfg.logLevel;
-          NEFITHK_LOG_FORMAT = cfg.logFormat;
-          NEFITHK_TAILSCALE_HOSTNAME = cfg.tailscaleHostname;
+          NEFITHK_LOG_LEVEL = cfg.log.level;
+          NEFITHK_LOG_FORMAT = cfg.log.format;
+          NEFITHK_TAILSCALE_HOSTNAME = cfg.tailscale.hostname;
         };
 
         serviceConfig = {
@@ -249,14 +253,14 @@ in
           ProtectProc = "invisible";
           ProcSubset = "pid";
           PrivateUsers = true;
-        } // (optionalAttrs (cfg.tailscaleAuthKeyFile != null) {
-          LoadCredential = "tailscale-authkey:${cfg.tailscaleAuthKeyFile}";
+        } // (optionalAttrs (cfg.tailscale.authKeyFile != null) {
+          LoadCredential = "tailscale-authkey:${cfg.tailscale.authKeyFile}";
         }) // (optionalAttrs (cfg.environmentFile != null) {
           EnvironmentFile = cfg.environmentFile;
         });
 
         script =
-          if cfg.tailscaleAuthKeyFile != null then ''
+          if cfg.tailscale.authKeyFile != null then ''
             export NEFITHK_TAILSCALE_AUTHKEY=$(cat $CREDENTIALS_DIRECTORY/tailscale-authkey)
             exec ${cfg.package}/bin/nefit-homekit
           '' else ''
