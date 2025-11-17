@@ -78,13 +78,28 @@ in
       description = "Group under which nefit-homekit runs.";
     };
 
+    ports = {
+      hap = mkOption {
+        type = types.port;
+        default = 12345;
+        description = "Port for the HomeKit Accessory Protocol (HAP) server.";
+      };
+
+      web = mkOption {
+        type = types.port;
+        default = 8080;
+        description = "Port for the web interface.";
+      };
+    };
+
     openFirewall = mkOption {
       type = types.bool;
       default = false;
       description = ''
         Whether to automatically open the firewall ports for HomeKit and mDNS.
         This opens:
-        - TCP port for HAP (default: 12345, or NEFITHK_HAP_PORT)
+        - TCP port for HAP (services.nefit-homekit.ports.hap)
+        - TCP port for web interface (services.nefit-homekit.ports.web)
         - UDP port 5353 for mDNS (required for HomeKit discovery)
       '';
     };
@@ -116,7 +131,10 @@ in
         # Start automatically with the system
         wantedBy = [ "multi-user.target" ];
 
-        environment = cfg.environment;
+        environment = cfg.environment // {
+          NEFITHK_HAP_PORT = toString cfg.ports.hap;
+          NEFITHK_WEB_PORT = toString cfg.ports.web;
+        };
 
         serviceConfig = {
           Type = "simple";
@@ -211,7 +229,8 @@ in
     (mkIf cfg.openFirewall {
       networking.firewall = {
         allowedTCPPorts = [
-          (toInt (cfg.environment.NEFITHK_HAP_PORT or "12345"))
+          cfg.ports.hap
+          cfg.ports.web
         ];
         allowedUDPPorts = [
           5353 # mDNS for HomeKit discovery

@@ -6,7 +6,7 @@ require (
 	github.com/Netflix/go-env v0.1.0
 	github.com/brutella/hap v0.0.35
 	github.com/chasefleming/elem-go v0.31.0
-	github.com/kradalby/nefit-go v0.0.0-20251105145953-1a70e858fd29
+	github.com/kradalby/nefit-go v0.0.0-20251117144102-68bdd02ae05f
 	github.com/prometheus/client_golang v1.23.0
 	go.uber.org/zap v1.27.0
 	tailscale.com v1.90.6
