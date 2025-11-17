@@ -77,121 +77,146 @@ in
       default = "nefit-homekit";
       description = "Group under which nefit-homekit runs.";
     };
+
+    openFirewall = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Whether to automatically open the firewall ports for HomeKit and mDNS.
+        This opens:
+        - TCP port for HAP (default: 12345, or NEFITHK_HAP_PORT)
+        - UDP port 5353 for mDNS (required for HomeKit discovery)
+      '';
+    };
   };
 
-  config = mkIf cfg.enable {
-    # User and group setup
-    users.users.${cfg.user} = {
-      isSystemUser = true;
-      group = cfg.group;
-      description = "Nefit HomeKit service user";
-      home = "/var/lib/nefit-homekit";
-      createHome = true;
-    };
+  config = mkIf cfg.enable (mkMerge [
+    {
+      # User and group setup
+      users.users.${cfg.user} = {
+        isSystemUser = true;
+        group = cfg.group;
+        description = "Nefit HomeKit service user";
+        home = "/var/lib/nefit-homekit";
+        createHome = true;
+      };
 
-    users.groups.${cfg.group} = { };
+      users.groups.${cfg.group} = { };
 
-    # Systemd service
-    systemd.services.nefit-homekit = {
-      description = "Nefit Easy HomeKit Bridge";
-      documentation = [ "https://github.com/kradalby/nefit-homekit" ];
+      # Systemd service
+      systemd.services.nefit-homekit = {
+        description = "Nefit Easy HomeKit Bridge";
+        documentation = [ "https://github.com/kradalby/nefit-homekit" ];
 
-      # Network dependencies
-      after = [ "network-online.target" ];
-      wants = [ "network-online.target" ];
-      requires = [ "network.target" ];
+        # Network dependencies
+        after = [ "network-online.target" ];
+        wants = [ "network-online.target" ];
+        requires = [ "network.target" ];
 
-      # Start automatically with the system
-      wantedBy = [ "multi-user.target" ];
+        # Start automatically with the system
+        wantedBy = [ "multi-user.target" ];
 
-      environment = cfg.environment;
+        environment = cfg.environment;
 
-      serviceConfig = {
-        Type = "simple";
-        User = cfg.user;
-        Group = cfg.group;
+        serviceConfig = {
+          Type = "simple";
+          User = cfg.user;
+          Group = cfg.group;
 
-        # Restart policy
-        Restart = "on-failure";
-        RestartSec = "10s";
-        RestartPreventExitStatus = [ 1 ];
-        StartLimitIntervalSec = "5min";
-        StartLimitBurst = 5;
+          # Restart policy
+          Restart = "on-failure";
+          RestartSec = "10s";
+          RestartPreventExitStatus = [ 1 ];
+          StartLimitIntervalSec = "5min";
+          StartLimitBurst = 5;
 
-        # Timeouts
-        TimeoutStartSec = "60s";
-        TimeoutStopSec = "30s";
+          # Timeouts
+          TimeoutStartSec = "60s";
+          TimeoutStopSec = "30s";
 
-        # Working directory and state
-        WorkingDirectory = "/var/lib/nefit-homekit";
-        StateDirectory = "nefit-homekit";
-        StateDirectoryMode = "0700";
+          # Working directory and state
+          WorkingDirectory = "/var/lib/nefit-homekit";
+          StateDirectory = "nefit-homekit";
+          StateDirectoryMode = "0700";
 
-        # Logging
-        StandardOutput = "journal";
-        StandardError = "journal";
-        SyslogIdentifier = "nefit-homekit";
+          # Logging
+          StandardOutput = "journal";
+          StandardError = "journal";
+          SyslogIdentifier = "nefit-homekit";
 
-        # Security hardening
-        # Filesystem access
-        ProtectSystem = "strict";
-        ProtectHome = true;
-        PrivateTmp = true;
-        ReadWritePaths = [
-          "/var/lib/nefit-homekit"
+          # Security hardening
+          # Filesystem access
+          ProtectSystem = "strict";
+          ProtectHome = true;
+          PrivateTmp = true;
+          ReadWritePaths = [
+            "/var/lib/nefit-homekit"
+          ];
+
+          # Capabilities
+          NoNewPrivileges = true;
+          PrivateDevices = true;
+          ProtectHostname = true;
+          ProtectClock = true;
+          ProtectKernelTunables = true;
+          ProtectKernelModules = true;
+          ProtectKernelLogs = true;
+          ProtectControlGroups = true;
+          RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
+          RestrictNamespaces = true;
+          LockPersonality = true;
+          MemoryDenyWriteExecute = true;
+          RestrictRealtime = true;
+          RestrictSUIDSGID = true;
+          RemoveIPC = true;
+
+          # System call filtering
+          SystemCallFilter = [
+            "@system-service"
+            "~@privileged"
+            "~@resources"
+          ];
+          SystemCallErrorNumber = "EPERM";
+          SystemCallArchitectures = "native";
+
+          # Process properties
+          UMask = "0077";
+
+          # Additional security
+          ProtectProc = "invisible";
+          ProcSubset = "pid";
+          PrivateUsers = true;
+        } // (optionalAttrs (cfg.tailscaleAuthKeyFile != null) {
+          LoadCredential = "tailscale-authkey:${cfg.tailscaleAuthKeyFile}";
+        }) // (optionalAttrs (cfg.environmentFile != null) {
+          EnvironmentFile = cfg.environmentFile;
+        });
+
+        script =
+          if cfg.tailscaleAuthKeyFile != null then ''
+            export NEFITHK_TAILSCALE_AUTHKEY=$(cat $CREDENTIALS_DIRECTORY/tailscale-authkey)
+            exec ${cfg.package}/bin/nefit-homekit
+          '' else ''
+            exec ${cfg.package}/bin/nefit-homekit
+          '';
+      };
+
+      # Create storage directory
+      systemd.tmpfiles.rules = [
+        "d '/var/lib/nefit-homekit' 0700 ${cfg.user} ${cfg.group} - -"
+      ];
+    }
+
+    # Firewall configuration
+    (mkIf cfg.openFirewall {
+      networking.firewall = {
+        allowedTCPPorts = [
+          (toInt (cfg.environment.NEFITHK_HAP_PORT or "12345"))
         ];
-
-        # Capabilities
-        NoNewPrivileges = true;
-        PrivateDevices = true;
-        ProtectHostname = true;
-        ProtectClock = true;
-        ProtectKernelTunables = true;
-        ProtectKernelModules = true;
-        ProtectKernelLogs = true;
-        ProtectControlGroups = true;
-        RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
-        RestrictNamespaces = true;
-        LockPersonality = true;
-        MemoryDenyWriteExecute = true;
-        RestrictRealtime = true;
-        RestrictSUIDSGID = true;
-        RemoveIPC = true;
-
-        # System call filtering
-        SystemCallFilter = [
-          "@system-service"
-          "~@privileged"
-          "~@resources"
+        allowedUDPPorts = [
+          5353 # mDNS for HomeKit discovery
         ];
-        SystemCallErrorNumber = "EPERM";
-        SystemCallArchitectures = "native";
-
-        # Process properties
-        UMask = "0077";
-
-        # Additional security
-        ProtectProc = "invisible";
-        ProcSubset = "pid";
-        PrivateUsers = true;
-      } // (optionalAttrs (cfg.tailscaleAuthKeyFile != null) {
-        LoadCredential = "tailscale-authkey:${cfg.tailscaleAuthKeyFile}";
-      }) // (optionalAttrs (cfg.environmentFile != null) {
-        EnvironmentFile = cfg.environmentFile;
-      });
-
-      script =
-        if cfg.tailscaleAuthKeyFile != null then ''
-          export NEFITHK_TAILSCALE_AUTHKEY=$(cat $CREDENTIALS_DIRECTORY/tailscale-authkey)
-          exec ${cfg.package}/bin/nefit-homekit
-        '' else ''
-          exec ${cfg.package}/bin/nefit-homekit
-        '';
-    };
-
-    # Create storage directory
-    systemd.tmpfiles.rules = [
-      "d '/var/lib/nefit-homekit' 0700 ${cfg.user} ${cfg.group} - -"
-    ];
-  };
+      };
+    })
+  ]);
 }
