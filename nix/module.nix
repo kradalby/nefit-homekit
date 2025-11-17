@@ -174,9 +174,6 @@ in
         ProtectProc = "invisible";
         ProcSubset = "pid";
         PrivateUsers = true;
-
-        # Nice level for better scheduling
-        Nice = 0;
       } // (optionalAttrs (cfg.tailscaleAuthKeyFile != null) {
         LoadCredential = "tailscale-authkey:${cfg.tailscaleAuthKeyFile}";
       }) // (optionalAttrs (cfg.environmentFile != null) {
