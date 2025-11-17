@@ -108,6 +108,10 @@ Then in your `configuration.nix`:
     enable = true;
     environmentFile = "/etc/nefit-homekit/env";
 
+    # Optional: Tailscale auth key from file (recommended for secrets)
+    # The file content will be passed as NEFITHK_TAILSCALE_AUTHKEY
+    # tailscaleAuthKeyFile = "/run/secrets/tailscale-authkey";
+
     # Optional: Override or add environment variables
     environment = {
       NEFITHK_LOG_LEVEL = "debug";
@@ -123,6 +127,7 @@ Then in your `configuration.nix`:
 services.nefit-homekit.enable                   # Enable the service
 services.nefit-homekit.package                  # Package to use (default: pkgs.nefit-homekit)
 services.nefit-homekit.environmentFile          # Path to file with NEFITHK_* env vars
+services.nefit-homekit.tailscaleAuthKeyFile     # Path to file with Tailscale auth key
 services.nefit-homekit.environment              # Attribute set of environment variables
 services.nefit-homekit.user                     # Service user (default: "nefit-homekit")
 services.nefit-homekit.group                    # Service group (default: "nefit-homekit")

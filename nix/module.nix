@@ -33,6 +33,20 @@ in
       example = "/etc/nefit-homekit/env";
     };
 
+    tailscaleAuthKeyFile = mkOption {
+      type = types.nullOr types.path;
+      default = null;
+      description = ''
+        Path to a file containing the Tailscale auth key.
+        The contents of this file will be passed to the service via the
+        NEFITHK_TAILSCALE_AUTHKEY environment variable.
+
+        This is more secure than putting the auth key in the environment
+        or environmentFile options, as it allows using secrets management.
+      '';
+      example = "/run/secrets/tailscale-authkey";
+    };
+
     environment = mkOption {
       type = types.attrsOf types.str;
       default = { };
@@ -93,11 +107,6 @@ in
         Restart = "on-failure";
         RestartSec = "10s";
 
-        # Load environment from file if specified
-        EnvironmentFile = mkIf (cfg.environmentFile != null) cfg.environmentFile;
-
-        ExecStart = "${cfg.package}/bin/nefit-homekit";
-
         # Working directory
         WorkingDirectory = "/var/lib/nefit-homekit";
 
@@ -138,7 +147,19 @@ in
 
         # Process properties
         UMask = "0077";
-      };
+      } // (optionalAttrs (cfg.tailscaleAuthKeyFile != null) {
+        LoadCredential = "tailscale-authkey:${cfg.tailscaleAuthKeyFile}";
+      }) // (optionalAttrs (cfg.environmentFile != null) {
+        EnvironmentFile = cfg.environmentFile;
+      });
+
+      script =
+        if cfg.tailscaleAuthKeyFile != null then ''
+          export NEFITHK_TAILSCALE_AUTHKEY=$(cat $CREDENTIALS_DIRECTORY/tailscale-authkey)
+          exec ${cfg.package}/bin/nefit-homekit
+        '' else ''
+          exec ${cfg.package}/bin/nefit-homekit
+        '';
     };
 
     # Create storage directory
