@@ -28,29 +28,8 @@
               git
               prek # pre-commit hooks
               nixpkgs-fmt # Nix formatter
+              prettier
             ];
-
-            shellHook = ''
-              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-              echo "🏠 Nefit Easy HomeKit Bridge - Development Environment"
-              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-              echo ""
-              echo "📦 Tools available:"
-              echo "  • go version: $(go version | cut -d' ' -f3)"
-              echo "  • golangci-lint: $(golangci-lint --version | head -n1)"
-              echo ""
-              echo "🚀 Quick commands:"
-              echo "  nix run .#test       - Run tests with coverage"
-              echo "  nix run .#lint       - Run golangci-lint"
-              echo "  nix run .#test-race  - Run tests with race detector"
-              echo "  nix run .#coverage   - Generate HTML coverage report"
-              echo "  nix build            - Build the binary"
-              echo ""
-              echo "💡 Continuous development:"
-              echo "  ls **/*.go | entr -c go test -v ./..."
-              echo ""
-              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            '';
           };
 
           # Custom apps for common tasks
@@ -59,10 +38,7 @@
               type = "app";
               program = toString (pkgs.writeShellScript "test" ''
                 set -e
-                echo "🧪 Running tests with coverage..."
                 ${go}/bin/go test -v -cover -coverprofile=coverage.out ./...
-                echo ""
-                echo "📊 Coverage summary:"
                 ${go}/bin/go tool cover -func=coverage.out | tail -n 1
               '');
             };
@@ -73,7 +49,6 @@
                 set -e
                 echo "🔍 Running golangci-lint..."
                 ${pkgs.golangci-lint}/bin/golangci-lint run ./...
-                echo "✅ Lint passed!"
               '');
             };
 
@@ -112,7 +87,7 @@
             version = "0.1.0";
             src = ./.;
 
-            vendorHash = "sha256-RG1fAtNrdvs2iou4nslxsWvE4QhcX4n7IhBvD5Gu7SI=";
+            vendorHash = "sha256-bK/N3j3vjRHuvo16I/B8B/iPcf6tZxpEzRFIh+a0SgY=";
 
             # Allow Go to auto-download the required toolchain version
             proxyVendor = true;

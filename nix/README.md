@@ -11,11 +11,13 @@ This directory contains the NixOS module and automated tests for nefit-homekit.
 ## Running Tests
 
 ### Run all tests
+
 ```bash
 nix flake check
 ```
 
 ### Run specific test
+
 ```bash
 # Module test
 nix build .#checks.x86_64-linux.module-test
@@ -25,6 +27,7 @@ nix build .#checks.x86_64-linux.integration-test
 ```
 
 ### Interactive testing
+
 ```bash
 # Build and run test VM
 nix build .#checks.x86_64-linux.module-test.driverInteractive
@@ -34,6 +37,7 @@ nix build .#checks.x86_64-linux.module-test.driverInteractive
 ## Test Coverage
 
 ### Module Test (`test.nix`)
+
 - Service starts successfully
 - Ports are opened (8080, 12345)
 - Web interface is accessible
@@ -42,6 +46,7 @@ nix build .#checks.x86_64-linux.module-test.driverInteractive
 - Graceful stop/start
 
 ### Integration Test (`integration-test.nix`)
+
 - Environment file loading
 - Environment variable override
 - Multiple node configurations

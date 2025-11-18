@@ -163,114 +163,104 @@ in
       users.groups.${cfg.group} = { };
 
       # Systemd service
-      systemd.services.nefit-homekit = {
-        description = "Nefit Easy HomeKit Bridge";
-        documentation = [ "https://github.com/kradalby/nefit-homekit" ];
+      systemd.services.nefit-homekit =
+        let
+          envVars = {
+            NEFITHK_HAP_PORT = toString cfg.ports.hap;
+            NEFITHK_WEB_PORT = toString cfg.ports.web;
+            NEFITHK_HAP_PIN = cfg.hapPin;
+            NEFITHK_HAP_STORAGE_PATH = cfg.storagePath;
+            NEFITHK_LOG_LEVEL = cfg.log.level;
+            NEFITHK_LOG_FORMAT = cfg.log.format;
+            NEFITHK_TAILSCALE_HOSTNAME = cfg.tailscale.hostname;
+          } // cfg.environment;
 
-        # Network dependencies
-        after = [ "network-online.target" ];
-        wants = [ "network-online.target" ];
-        requires = [ "network.target" ];
+          tailscaleExport =
+            lib.optionalString (cfg.tailscale.authKeyFile != null) ''
+              export NEFITHK_TAILSCALE_AUTHKEY="$(cat "$CREDENTIALS_DIRECTORY/tailscale-authkey")"
+            '';
 
-        # Start automatically with the system
-        wantedBy = [ "multi-user.target" ];
-
-        environment = cfg.environment // {
-          NEFITHK_HAP_PORT = toString cfg.ports.hap;
-          NEFITHK_WEB_PORT = toString cfg.ports.web;
-          NEFITHK_HAP_PIN = cfg.hapPin;
-          NEFITHK_HAP_STORAGE_PATH = cfg.storagePath;
-          NEFITHK_LOG_LEVEL = cfg.log.level;
-          NEFITHK_LOG_FORMAT = cfg.log.format;
-          NEFITHK_TAILSCALE_HOSTNAME = cfg.tailscale.hostname;
-        };
-
-        serviceConfig = {
-          Type = "simple";
-          User = cfg.user;
-          Group = cfg.group;
-
-          # Restart policy
-          Restart = "on-failure";
-          RestartSec = "10s";
-          RestartPreventExitStatus = [ 1 ];
-          StartLimitIntervalSec = "5min";
-          StartLimitBurst = 5;
-
-          # Timeouts
-          TimeoutStartSec = "60s";
-          TimeoutStopSec = "30s";
-
-          # Working directory and state
-          WorkingDirectory = cfg.storagePath;
-          StateDirectory = "nefit-homekit";
-          StateDirectoryMode = "0700";
-
-          # Logging
-          StandardOutput = "journal";
-          StandardError = "journal";
-          SyslogIdentifier = "nefit-homekit";
-
-          # Security hardening
-          # Filesystem access
-          ProtectSystem = "strict";
-          ProtectHome = true;
-          PrivateTmp = true;
-          ReadWritePaths = [
-            cfg.storagePath
-          ];
-
-          # Capabilities
-          NoNewPrivileges = true;
-          PrivateDevices = true;
-          ProtectHostname = true;
-          ProtectClock = true;
-          ProtectKernelTunables = true;
-          ProtectKernelModules = true;
-          ProtectKernelLogs = true;
-          ProtectControlGroups = true;
-          RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
-          RestrictNamespaces = true;
-          LockPersonality = true;
-          MemoryDenyWriteExecute = true;
-          RestrictRealtime = true;
-          RestrictSUIDSGID = true;
-          RemoveIPC = true;
-
-          # System call filtering
-          SystemCallFilter = [
-            "@system-service"
-            "~@privileged"
-            "~@resources"
-          ];
-          SystemCallErrorNumber = "EPERM";
-          SystemCallArchitectures = "native";
-
-          # Process properties
-          UMask = "0077";
-
-          # Additional security
-          ProtectProc = "invisible";
-          ProcSubset = "pid";
-          PrivateUsers = true;
-        } // (optionalAttrs (cfg.tailscale.authKeyFile != null) {
-          LoadCredential = "tailscale-authkey:${cfg.tailscale.authKeyFile}";
-        }) // (optionalAttrs (cfg.environmentFile != null) {
-          EnvironmentFile = cfg.environmentFile;
-        });
-
-        script =
-          if cfg.tailscale.authKeyFile != null then ''
-            export NEFITHK_TAILSCALE_AUTHKEY=$(cat $CREDENTIALS_DIRECTORY/tailscale-authkey)
-            exec ${cfg.package}/bin/nefit-homekit
-          '' else ''
+          startScript = pkgs.writeShellScript "nefit-homekit-start" ''
+            set -euo pipefail
+            ${tailscaleExport}
             exec ${cfg.package}/bin/nefit-homekit
           '';
-      };
+        in
+        {
+          description = "Nefit Easy HomeKit Bridge";
+          documentation = [ "https://github.com/kradalby/nefit-homekit" ];
 
-      # Create storage directory
+          after = [ "network-online.target" ];
+          wants = [ "network-online.target" ];
+          wantedBy = [ "multi-user.target" ];
+
+          environment = envVars;
+
+          serviceConfig = {
+            Type = "simple";
+            ExecStart = startScript;
+            User = cfg.user;
+            Group = cfg.group;
+
+            Restart = "on-failure";
+            RestartSec = "10s";
+            RestartPreventExitStatus = [ 1 ];
+            StartLimitIntervalSec = "5min";
+            StartLimitBurst = 5;
+
+            TimeoutStartSec = "60s";
+            TimeoutStopSec = "30s";
+
+            WorkingDirectory = cfg.storagePath;
+            StateDirectory = "nefit-homekit";
+            StateDirectoryMode = "0700";
+            CacheDirectory = "nefit-homekit";
+            RuntimeDirectory = "nefit-homekit";
+
+            StandardOutput = "journal";
+            StandardError = "journal";
+            SyslogIdentifier = "nefit-homekit";
+
+            ProtectSystem = "strict";
+            ProtectHome = true;
+            PrivateTmp = true;
+            ReadWritePaths = [ cfg.storagePath ];
+            NoNewPrivileges = true;
+            PrivateDevices = true;
+            ProtectHostname = true;
+            ProtectClock = true;
+            ProtectKernelTunables = true;
+            ProtectKernelModules = true;
+            ProtectKernelLogs = true;
+            ProtectControlGroups = true;
+            RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
+            RestrictNamespaces = true;
+            LockPersonality = true;
+            MemoryDenyWriteExecute = true;
+            RestrictRealtime = true;
+            RestrictSUIDSGID = true;
+            RemoveIPC = true;
+            ProtectProc = "invisible";
+            ProcSubset = "pid";
+            SystemCallFilter = [
+              "@system-service"
+              "~@privileged"
+              "~@resources"
+            ];
+            SystemCallErrorNumber = "EPERM";
+            SystemCallArchitectures = "native";
+            UMask = "0077";
+          }
+          // (optionalAttrs (cfg.environmentFile != null) {
+            EnvironmentFile = cfg.environmentFile;
+          })
+          // (optionalAttrs (cfg.tailscale.authKeyFile != null) {
+            LoadCredential = "tailscale-authkey:${cfg.tailscale.authKeyFile}";
+          });
+        };
+
       systemd.tmpfiles.rules = [
-        "d '/var/lib/nefit-homekit' 0700 ${cfg.user} ${cfg.group} - -"
+        "d ${cfg.storagePath} 0700 ${cfg.user} ${cfg.group} - -"
       ];
     }
 
