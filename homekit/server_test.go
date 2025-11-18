@@ -1,17 +1,22 @@
 package homekit
 
 import (
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/kradalby/nefit-homekit/config"
 	"github.com/kradalby/nefit-homekit/events"
-	"go.uber.org/zap"
 	"tailscale.com/util/eventbus"
 )
 
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
 func TestNew(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
@@ -49,7 +54,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestNewWithNilConfig(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
@@ -65,7 +70,7 @@ func TestNewWithNilConfig(t *testing.T) {
 }
 
 func TestNewWithNilLogger(t *testing.T) {
-	bus, err := events.New(zap.NewNop())
+	bus, err := events.New(testLogger())
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
 	}
@@ -87,7 +92,7 @@ func TestNewWithNilLogger(t *testing.T) {
 }
 
 func TestNewWithNilBus(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	cfg := &config.Config{
 		NefitSerial:    "TEST123",
 		HAPPin:         "12345678",
@@ -102,7 +107,7 @@ func TestNewWithNilBus(t *testing.T) {
 }
 
 func TestUpdateAccessory(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
@@ -127,11 +132,11 @@ func TestUpdateAccessory(t *testing.T) {
 	}()
 
 	tests := []struct {
-		name          string
-		event         events.StateUpdateEvent
-		wantCurrent   float64
-		wantTarget    float64
-		wantHeating   int
+		name           string
+		event          events.StateUpdateEvent
+		wantCurrent    float64
+		wantTarget     float64
+		wantHeating    int
 		wantTargetMode int
 	}{
 		{
@@ -143,9 +148,9 @@ func TestUpdateAccessory(t *testing.T) {
 				HeatingActive:      true,
 				Mode:               "heat",
 			},
-			wantCurrent:   21.5,
-			wantTarget:    22.0,
-			wantHeating:   1, // Heating
+			wantCurrent:    21.5,
+			wantTarget:     22.0,
+			wantHeating:    1, // Heating
 			wantTargetMode: 1, // Heat
 		},
 		{
@@ -157,9 +162,9 @@ func TestUpdateAccessory(t *testing.T) {
 				HeatingActive:      false,
 				Mode:               "heat",
 			},
-			wantCurrent:   22.0,
-			wantTarget:    22.0,
-			wantHeating:   0, // Off
+			wantCurrent:    22.0,
+			wantTarget:     22.0,
+			wantHeating:    0, // Off
 			wantTargetMode: 1, // Heat
 		},
 		{
@@ -171,9 +176,9 @@ func TestUpdateAccessory(t *testing.T) {
 				HeatingActive:      false,
 				Mode:               "off",
 			},
-			wantCurrent:   20.0,
-			wantTarget:    15.0,
-			wantHeating:   0, // Off
+			wantCurrent:    20.0,
+			wantTarget:     15.0,
+			wantHeating:    0, // Off
 			wantTargetMode: 0, // Off
 		},
 	}
@@ -202,7 +207,7 @@ func TestUpdateAccessory(t *testing.T) {
 }
 
 func TestUpdateAccessoryIgnoresNonNefitSource(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
@@ -246,7 +251,7 @@ func TestUpdateAccessoryIgnoresNonNefitSource(t *testing.T) {
 }
 
 func TestStateUpdatePubSub(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
@@ -308,7 +313,7 @@ func TestStateUpdatePubSub(t *testing.T) {
 }
 
 func TestCommandPublish(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
@@ -373,7 +378,7 @@ func TestCommandPublish(t *testing.T) {
 }
 
 func TestClose(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)

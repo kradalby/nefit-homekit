@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,7 +16,6 @@ import (
 	"github.com/kradalby/nefit-homekit/logging"
 	"github.com/kradalby/nefit-homekit/nefit"
 	"github.com/kradalby/nefit-homekit/web"
-	"go.uber.org/zap"
 )
 
 func main() {
@@ -37,16 +37,13 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to setup logger: %w", err)
 	}
-	defer func() {
-		_ = logger.Sync()
-	}()
 
 	logger.Info("starting nefit-homekit",
-		zap.String("log_level", cfg.LogLevel),
-		zap.String("log_format", cfg.LogFormat),
-		zap.String("nefit_serial", cfg.NefitSerial),
-		zap.Int("hap_port", cfg.HAPPort),
-		zap.Int("web_port", cfg.WebPort),
+		slog.String("log_level", cfg.LogLevel),
+		slog.String("log_format", cfg.LogFormat),
+		slog.String("nefit_serial", cfg.NefitSerial),
+		slog.Int("hap_port", cfg.HAPPort),
+		slog.Int("web_port", cfg.WebPort),
 	)
 
 	// Initialize EventBus
@@ -109,15 +106,15 @@ func run() error {
 	}
 
 	logger.Info("nefit-homekit started successfully",
-		zap.Int("hap_port", cfg.HAPPort),
-		zap.Int("web_port", cfg.WebPort),
+		slog.Int("hap_port", cfg.HAPPort),
+		slog.Int("web_port", cfg.WebPort),
 	)
 	logger.Info("homekit pairing",
-		zap.String("pin", cfg.HAPPin),
-		zap.String("instructions", "Use the Home app to add accessory with PIN"),
+		slog.String("pin", cfg.HAPPin),
+		slog.String("instructions", "Use the Home app to add accessory with PIN"),
 	)
 	logger.Info("web interface",
-		zap.String("url", fmt.Sprintf("http://localhost:%d", cfg.WebPort)),
+		slog.String("url", fmt.Sprintf("http://localhost:%d", cfg.WebPort)),
 	)
 
 	// Wait for shutdown signal
@@ -126,7 +123,7 @@ func run() error {
 
 	sig := <-sigChan
 	logger.Info("received shutdown signal",
-		zap.String("signal", sig.String()),
+		slog.String("signal", sig.String()),
 	)
 
 	// Graceful shutdown

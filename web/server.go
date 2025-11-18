@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -17,7 +20,6 @@ import (
 	"github.com/kradalby/nefit-homekit/config"
 	"github.com/kradalby/nefit-homekit/events"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"go.uber.org/zap"
 	"tailscale.com/util/eventbus"
 )
 
@@ -29,7 +31,7 @@ const (
 // Server manages the web interface.
 type Server struct {
 	cfg     *config.Config
-	logger  *zap.Logger
+	logger  *slog.Logger
 	bus     *events.Bus
 	client  *eventbus.Client
 	kraweb  *web.KraWeb
@@ -45,7 +47,7 @@ type Server struct {
 }
 
 // New creates a new web server.
-func New(cfg *config.Config, logger *zap.Logger, bus *events.Bus) (*Server, error) {
+func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is required")
 	}
@@ -79,13 +81,23 @@ func New(cfg *config.Config, logger *zap.Logger, bus *events.Bus) (*Server, erro
 		return nil, fmt.Errorf("failed to generate QR code: %w", err)
 	}
 
-	// Create kraweb with Tailscale hostname always set
-	// If authkey is provided, Tailscale will be enabled
-	krawebServer := web.NewKraWeb(
-		cfg.TailscaleHostname,
-		cfg.TailscaleAuthKey,
-		fmt.Sprintf(":%d", cfg.WebPort),
+	stdLogger := log.New(os.Stdout, "kraweb: ", log.LstdFlags)
+	kraConfig := web.ServerConfig{
+		Hostname:        cfg.TailscaleHostname,
+		LocalAddr:       fmt.Sprintf("%s:%d", cfg.WebBindAddress, cfg.WebPort),
+		AuthKey:         cfg.TailscaleAuthKey,
+		EnableTailscale: cfg.TailscaleAuthKey != "",
+	}
+
+	krawebServer, err := web.NewServer(
+		kraConfig,
+		web.WithStdLogger(stdLogger),
+		web.WithLogger(logger),
 	)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to configure web server: %w", err)
+	}
 
 	s := &Server{
 		cfg:        cfg,
@@ -111,7 +123,7 @@ func New(cfg *config.Config, logger *zap.Logger, bus *events.Bus) (*Server, erro
 	s.kraweb.Handle("/metrics", promhttp.Handler())
 
 	logger.Info("web server created",
-		zap.Int("port", cfg.WebPort),
+		slog.Int("port", cfg.WebPort),
 	)
 
 	return s, nil
@@ -127,11 +139,11 @@ func (s *Server) Start() error {
 	// Start kraweb in background
 	go func() {
 		s.logger.Info("web interface",
-			zap.Int("port", s.cfg.WebPort),
-			zap.String("tailscale_hostname", s.cfg.TailscaleHostname),
+			slog.Int("port", s.cfg.WebPort),
+			slog.String("tailscale_hostname", s.cfg.TailscaleHostname),
 		)
-		if err := s.kraweb.ListenAndServe(); err != nil {
-			s.logger.Error("web server error", zap.Error(err))
+		if err := s.kraweb.ListenAndServe(s.ctx); err != nil {
+			s.logger.Error("web server error", slog.Any("error", err))
 		}
 	}()
 
@@ -173,9 +185,9 @@ func (s *Server) updateState(event events.StateUpdateEvent) {
 	s.mu.Unlock()
 
 	s.logger.Debug("state updated",
-		zap.Float64("current_temp", event.CurrentTemperature),
-		zap.Float64("target_temp", event.TargetTemperature),
-		zap.Bool("heating", event.HeatingActive),
+		slog.Float64("current_temp", event.CurrentTemperature),
+		slog.Float64("target_temp", event.TargetTemperature),
+		slog.Bool("heating", event.HeatingActive),
 	)
 }
 
@@ -243,7 +255,7 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 		case event := <-clientChan:
 			data, err := json.Marshal(event)
 			if err != nil {
-				s.logger.Error("failed to marshal event", zap.Error(err))
+				s.logger.Error("failed to marshal event", slog.Any("error", err))
 				continue
 			}
 
@@ -292,7 +304,7 @@ func (s *Server) handleSetTemperature(w http.ResponseWriter, r *http.Request) {
 	s.bus.PublishCommand(s.client, event)
 
 	s.logger.Info("temperature changed via web",
-		zap.Float64("temperature", temp),
+		slog.Float64("temperature", temp),
 	)
 
 	w.WriteHeader(http.StatusOK)
@@ -326,7 +338,7 @@ func (s *Server) handleSetMode(w http.ResponseWriter, r *http.Request) {
 	s.bus.PublishCommand(s.client, event)
 
 	s.logger.Info("mode changed via web",
-		zap.String("mode", mode),
+		slog.String("mode", mode),
 	)
 
 	w.WriteHeader(http.StatusOK)
@@ -437,7 +449,7 @@ func (s *Server) handleQRCode(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write([]byte(html.Render())); err != nil {
-		s.logger.Error("failed to write QR code response", zap.Error(err))
+		s.logger.Error("failed to write QR code response", slog.Any("error", err))
 	}
 }
 

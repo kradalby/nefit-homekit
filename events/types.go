@@ -26,7 +26,7 @@ type StateUpdateEvent struct {
 	CurrentTemperature  float64 // Celsius
 	TargetTemperature   float64 // Celsius
 	HeatingActive       bool
-	Mode                string // "heat", "off"
+	Mode                string  // "heat", "off"
 	Pressure            float64 // Bar
 	HotWaterActive      bool
 	HotWaterTemperature float64 // Celsius

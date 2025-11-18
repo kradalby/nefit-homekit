@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,12 +15,15 @@ import (
 
 	"github.com/kradalby/nefit-homekit/config"
 	"github.com/kradalby/nefit-homekit/events"
-	"go.uber.org/zap"
 	"tailscale.com/util/eventbus"
 )
 
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
 func TestNew(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
@@ -53,7 +58,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestNewWithNilConfig(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
@@ -69,7 +74,7 @@ func TestNewWithNilConfig(t *testing.T) {
 }
 
 func TestNewWithNilLogger(t *testing.T) {
-	bus, err := events.New(zap.NewNop())
+	bus, err := events.New(testLogger())
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
 	}
@@ -92,7 +97,7 @@ func TestNewWithNilLogger(t *testing.T) {
 }
 
 func TestNewWithNilBus(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	cfg := &config.Config{
 		NefitSerial:    "TEST123",
 		HAPPin:         "12345678",
@@ -108,7 +113,7 @@ func TestNewWithNilBus(t *testing.T) {
 }
 
 func TestHandleIndex(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
@@ -166,7 +171,7 @@ func TestHandleIndex(t *testing.T) {
 }
 
 func TestHandleHealth(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
@@ -205,7 +210,7 @@ func TestHandleHealth(t *testing.T) {
 }
 
 func TestHandleSetTemperature(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
@@ -313,7 +318,7 @@ func TestHandleSetTemperature(t *testing.T) {
 }
 
 func TestHandleSetMode(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
@@ -409,7 +414,7 @@ func TestHandleSetMode(t *testing.T) {
 }
 
 func TestUpdateState(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
@@ -464,7 +469,7 @@ func TestUpdateState(t *testing.T) {
 }
 
 func TestStateUpdatePubSub(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
@@ -535,7 +540,7 @@ func TestStateUpdatePubSub(t *testing.T) {
 }
 
 func TestHandleSSE(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
@@ -641,7 +646,7 @@ func TestHandleSSE(t *testing.T) {
 }
 
 func TestHandleEventBusDebug(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)
@@ -690,7 +695,7 @@ func TestHandleEventBusDebug(t *testing.T) {
 }
 
 func TestClose(t *testing.T) {
-	logger := zap.NewNop()
+	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
 		t.Fatalf("events.New() error = %v", err)

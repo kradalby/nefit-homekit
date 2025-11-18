@@ -8,14 +8,14 @@ import (
 func TestStateUpdateEvent(t *testing.T) {
 	now := time.Now()
 	event := StateUpdateEvent{
-		Timestamp:          now,
-		Source:             "nefit",
-		CurrentTemperature: 21.5,
-		TargetTemperature:  22.0,
-		HeatingActive:      true,
-		Mode:               "heat",
-		Pressure:           1.5,
-		HotWaterActive:     true,
+		Timestamp:           now,
+		Source:              "nefit",
+		CurrentTemperature:  21.5,
+		TargetTemperature:   22.0,
+		HeatingActive:       true,
+		Mode:                "heat",
+		Pressure:            1.5,
+		HotWaterActive:      true,
 		HotWaterTemperature: 55.0,
 	}
 
@@ -79,9 +79,9 @@ func TestConnectionStatusEvent(t *testing.T) {
 
 func TestEventTypes(t *testing.T) {
 	tests := []struct {
-		name     string
+		name      string
 		eventType EventType
-		want     string
+		want      string
 	}{
 		{"state update", EventTypeStateUpdate, "state_update"},
 		{"command", EventTypeCommand, "command"},

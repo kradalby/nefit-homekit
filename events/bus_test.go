@@ -1,15 +1,16 @@
 package events
 
 import (
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
-	"go.uber.org/zap"
 	"tailscale.com/util/eventbus"
 )
 
 func TestNew(t *testing.T) {
-	logger := zap.NewNop()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	bus, err := New(logger)
 	if err != nil {
@@ -53,7 +54,7 @@ func TestNewWithNilLogger(t *testing.T) {
 }
 
 func TestClientNotFound(t *testing.T) {
-	logger := zap.NewNop()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	bus, err := New(logger)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -69,7 +70,7 @@ func TestClientNotFound(t *testing.T) {
 }
 
 func TestPublishAndSubscribe(t *testing.T) {
-	logger := zap.NewNop()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	bus, err := New(logger)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -175,7 +176,7 @@ func TestPublishAndSubscribe(t *testing.T) {
 }
 
 func TestClose(t *testing.T) {
-	logger := zap.NewNop()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	bus, err := New(logger)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -197,7 +198,7 @@ func TestClose(t *testing.T) {
 }
 
 func TestConcurrentPublish(t *testing.T) {
-	logger := zap.NewNop()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	bus, err := New(logger)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -253,7 +254,7 @@ func TestConcurrentPublish(t *testing.T) {
 }
 
 func TestPublishStateUpdateDeduplication(t *testing.T) {
-	logger := zap.NewNop()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	bus, err := New(logger)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

@@ -3,9 +3,9 @@ package events
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 
-	"go.uber.org/zap"
 	"tailscale.com/util/eventbus"
 )
 
@@ -31,7 +31,7 @@ type Bus struct {
 	bus       *eventbus.Bus
 	clients   map[ClientName]*eventbus.Client
 	mu        sync.RWMutex
-	logger    *zap.Logger
+	logger    *slog.Logger
 	ctx       context.Context
 	cancel    context.CancelFunc
 	lastState *StateUpdateEvent // For deduplication
@@ -39,7 +39,7 @@ type Bus struct {
 }
 
 // New creates a new eventbus with named clients.
-func New(logger *zap.Logger) (*Bus, error) {
+func New(logger *slog.Logger) (*Bus, error) {
 	if logger == nil {
 		return nil, fmt.Errorf("logger is required")
 	}
@@ -60,7 +60,7 @@ func New(logger *zap.Logger) (*Bus, error) {
 	b.createClients()
 
 	logger.Info("eventbus initialized",
-		zap.Int("client_count", len(b.clients)),
+		slog.Int("client_count", len(b.clients)),
 	)
 
 	return b, nil
@@ -104,17 +104,17 @@ func (b *Bus) PublishStateUpdate(client *eventbus.Client, event StateUpdateEvent
 	// Check if this event is a duplicate of the last published state
 	if b.lastState != nil && event.Equals(*b.lastState) {
 		b.logger.Debug("skipping duplicate state update event",
-			zap.String("source", event.Source),
-			zap.Float64("current_temp", event.CurrentTemperature),
-			zap.Float64("target_temp", event.TargetTemperature),
+			slog.String("source", event.Source),
+			slog.Float64("current_temp", event.CurrentTemperature),
+			slog.Float64("target_temp", event.TargetTemperature),
 		)
 		return
 	}
 
 	b.logger.Debug("publishing state update event",
-		zap.String("source", event.Source),
-		zap.Float64("current_temp", event.CurrentTemperature),
-		zap.Float64("target_temp", event.TargetTemperature),
+		slog.String("source", event.Source),
+		slog.Float64("current_temp", event.CurrentTemperature),
+		slog.Float64("target_temp", event.TargetTemperature),
 	)
 
 	publisher := eventbus.Publish[StateUpdateEvent](client)
@@ -128,8 +128,8 @@ func (b *Bus) PublishStateUpdate(client *eventbus.Client, event StateUpdateEvent
 // PublishCommand publishes a command event.
 func (b *Bus) PublishCommand(client *eventbus.Client, event CommandEvent) {
 	b.logger.Debug("publishing command event",
-		zap.String("source", event.Source),
-		zap.String("command_type", string(event.CommandType)),
+		slog.String("source", event.Source),
+		slog.String("command_type", string(event.CommandType)),
 	)
 
 	publisher := eventbus.Publish[CommandEvent](client)
@@ -140,8 +140,8 @@ func (b *Bus) PublishCommand(client *eventbus.Client, event CommandEvent) {
 // PublishConnectionStatus publishes a connection status event.
 func (b *Bus) PublishConnectionStatus(client *eventbus.Client, event ConnectionStatusEvent) {
 	b.logger.Debug("publishing connection status event",
-		zap.String("component", event.Component),
-		zap.String("status", string(event.Status)),
+		slog.String("component", event.Component),
+		slog.String("status", string(event.Status)),
 	)
 
 	publisher := eventbus.Publish[ConnectionStatusEvent](client)

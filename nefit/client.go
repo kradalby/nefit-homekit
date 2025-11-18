@@ -4,13 +4,13 @@ package nefit
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	nefitclient "github.com/kradalby/nefit-go/client"
 	"github.com/kradalby/nefit-go/types"
 	"github.com/kradalby/nefit-homekit/config"
 	"github.com/kradalby/nefit-homekit/events"
-	"go.uber.org/zap"
 	"tailscale.com/util/eventbus"
 )
 
@@ -21,7 +21,7 @@ const (
 // Client manages the persistent connection to the Nefit Easy thermostat.
 type Client struct {
 	cfg          *config.Config
-	logger       *zap.Logger
+	logger       *slog.Logger
 	bus          *events.Bus
 	client       *eventbus.Client
 	nefitClient  *nefitclient.Client
@@ -31,7 +31,7 @@ type Client struct {
 }
 
 // New creates a new Nefit client.
-func New(cfg *config.Config, logger *zap.Logger, bus *events.Bus) (*Client, error) {
+func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Client, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is required")
 	}
@@ -75,7 +75,7 @@ func New(cfg *config.Config, logger *zap.Logger, bus *events.Bus) (*Client, erro
 	}
 
 	logger.Info("nefit client created",
-		zap.String("serial", cfg.NefitSerial),
+		slog.String("serial", cfg.NefitSerial),
 	)
 
 	return c, nil
@@ -111,7 +111,7 @@ func (c *Client) connectWithRetry() {
 		}
 
 		c.logger.Info("attempting to connect to nefit backend",
-			zap.Int("attempt", c.reconnectNum+1),
+			slog.Int("attempt", c.reconnectNum+1),
 		)
 
 		c.publishConnectionStatus(events.ConnectionStatusConnecting, "")
@@ -132,9 +132,9 @@ func (c *Client) connectWithRetry() {
 
 		c.reconnectNum++
 		c.logger.Error("failed to connect to nefit backend",
-			zap.Error(err),
-			zap.Int("attempt", c.reconnectNum),
-			zap.Duration("backoff", backoff),
+			slog.Any("error", err),
+			slog.Int("attempt", c.reconnectNum),
+			slog.Duration("backoff", backoff),
 		)
 
 		c.publishConnectionStatus(events.ConnectionStatusReconnecting, err.Error())
@@ -158,14 +158,14 @@ func (c *Client) pollStatus() {
 	defer ticker.Stop()
 
 	c.logger.Debug("starting status polling",
-		zap.Duration("interval", c.cfg.XMPPKeepaliveInterval),
+		slog.Duration("interval", c.cfg.XMPPKeepaliveInterval),
 	)
 
 	for {
 		select {
 		case <-ticker.C:
 			if err := c.fetchAndPublishStatus(); err != nil {
-				c.logger.Warn("failed to fetch status", zap.Error(err))
+				c.logger.Warn("failed to fetch status", slog.Any("error", err))
 			}
 		case <-c.ctx.Done():
 			c.logger.Debug("stopping status polling")
@@ -179,43 +179,41 @@ func (c *Client) fetchAndPublishStatus() error {
 	ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
 	defer cancel()
 
-	var status types.Status
-	_, err := c.nefitClient.Get(ctx, types.URIStatus)
+	status, err := c.nefitClient.Status(ctx, true)
 	if err != nil {
 		return fmt.Errorf("failed to get status: %w", err)
 	}
+	if status == nil {
+		return fmt.Errorf("status response was nil")
+	}
 
-	// For now, just publish a zero status since we can't unmarshal the response yet
-	// TODO: Properly unmarshal the status response
-	c.publishStateUpdate(status)
+	c.publishStateUpdate(*status)
 	return nil
 }
 
 // handleNefitEvent is called when the Nefit backend sends a push notification.
 func (c *Client) handleNefitEvent(uri string, data interface{}) {
 	c.logger.Debug("received nefit event",
-		zap.String("uri", uri),
+		slog.String("uri", uri),
 	)
 
 	// For status updates, publish to eventbus
 	if uri == types.URIStatus {
-		if status, ok := data.(map[string]interface{}); ok {
-			// Convert map to Status struct
-			var s types.Status
-			if currentTemp, ok := status["in_house_temp"].(float64); ok {
-				s.InHouseTemp = currentTemp
+		if raw, ok := data.(map[string]interface{}); ok {
+			status := types.Status{}
+			if in, ok := raw["in_house_temp"].(float64); ok {
+				status.InHouseTemp = in
 			}
-			if setpoint, ok := status["temp_setpoint"].(float64); ok {
-				s.TempSetpoint = setpoint
+			if sp, ok := raw["temp_setpoint"].(float64); ok {
+				status.TempSetpoint = sp
 			}
-			if boilerIndicator, ok := status["boiler_indicator"].(string); ok {
-				s.BoilerIndicator = boilerIndicator
+			if boiler, ok := raw["boiler_indicator"].(string); ok {
+				status.BoilerIndicator = boiler
 			}
-			if userMode, ok := status["user_mode"].(string); ok {
-				s.UserMode = userMode
+			if mode, ok := raw["user_mode"].(string); ok {
+				status.UserMode = mode
 			}
-
-			c.publishStateUpdate(s)
+			c.publishStateUpdate(status)
 		}
 	}
 }
@@ -241,9 +239,9 @@ func (c *Client) publishStateUpdate(status types.Status) {
 	}
 
 	c.logger.Debug("publishing state update",
-		zap.Float64("current_temp", event.CurrentTemperature),
-		zap.Float64("target_temp", event.TargetTemperature),
-		zap.Bool("heating", event.HeatingActive),
+		slog.Float64("current_temp", event.CurrentTemperature),
+		slog.Float64("target_temp", event.TargetTemperature),
+		slog.Bool("heating", event.HeatingActive),
 	)
 
 	c.bus.PublishStateUpdate(c.client, event)
@@ -285,17 +283,17 @@ func (c *Client) handleCommand(cmd events.CommandEvent) {
 		}
 
 		c.logger.Info("setting target temperature",
-			zap.Float64("temperature", *cmd.TargetTemperature),
+			slog.Float64("temperature", *cmd.TargetTemperature),
 		)
 
 		if err := c.nefitClient.Put(ctx, types.URIManualSetpoint, *cmd.TargetTemperature); err != nil {
-			c.logger.Error("failed to set temperature", zap.Error(err))
+			c.logger.Error("failed to set temperature", slog.Any("error", err))
 			return
 		}
 
 		// Fetch updated status to confirm change
 		if err := c.fetchAndPublishStatus(); err != nil {
-			c.logger.Warn("failed to fetch status after temperature change", zap.Error(err))
+			c.logger.Warn("failed to fetch status after temperature change", slog.Any("error", err))
 		}
 
 	case events.CommandTypeSetMode:
@@ -305,7 +303,7 @@ func (c *Client) handleCommand(cmd events.CommandEvent) {
 		}
 
 		c.logger.Info("setting mode",
-			zap.String("mode", *cmd.Mode),
+			slog.String("mode", *cmd.Mode),
 		)
 
 		// Map our mode to Nefit mode
@@ -315,13 +313,13 @@ func (c *Client) handleCommand(cmd events.CommandEvent) {
 		}
 
 		if err := c.nefitClient.Put(ctx, types.URIUserMode, nefitMode); err != nil {
-			c.logger.Error("failed to set mode", zap.Error(err))
+			c.logger.Error("failed to set mode", slog.Any("error", err))
 			return
 		}
 
 		// Fetch updated status to confirm change
 		if err := c.fetchAndPublishStatus(); err != nil {
-			c.logger.Warn("failed to fetch status after mode change", zap.Error(err))
+			c.logger.Warn("failed to fetch status after mode change", slog.Any("error", err))
 		}
 
 	case events.CommandTypeSetHotWater:
@@ -331,7 +329,7 @@ func (c *Client) handleCommand(cmd events.CommandEvent) {
 		}
 
 		c.logger.Info("setting hot water",
-			zap.Bool("enabled", *cmd.HotWaterEnabled),
+			slog.Bool("enabled", *cmd.HotWaterEnabled),
 		)
 
 		mode := modeOff
@@ -340,13 +338,13 @@ func (c *Client) handleCommand(cmd events.CommandEvent) {
 		}
 
 		if err := c.nefitClient.Put(ctx, types.URIHotWaterManualMode, mode); err != nil {
-			c.logger.Error("failed to set hot water", zap.Error(err))
+			c.logger.Error("failed to set hot water", slog.Any("error", err))
 			return
 		}
 
 	default:
 		c.logger.Warn("unknown command type",
-			zap.String("type", string(cmd.CommandType)),
+			slog.String("type", string(cmd.CommandType)),
 		)
 	}
 }
@@ -372,7 +370,7 @@ func (c *Client) Close() error {
 
 	if c.nefitClient != nil {
 		if err := c.nefitClient.Close(); err != nil {
-			c.logger.Warn("error closing nefit client", zap.Error(err))
+			c.logger.Warn("error closing nefit client", slog.Any("error", err))
 		}
 	}
 

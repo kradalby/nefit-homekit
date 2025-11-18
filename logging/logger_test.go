@@ -1,9 +1,9 @@
 package logging
 
 import (
+	"log/slog"
+	"strings"
 	"testing"
-
-	"go.uber.org/zap/zapcore"
 )
 
 func TestNew(t *testing.T) {
@@ -14,50 +14,13 @@ func TestNew(t *testing.T) {
 		wantErr bool
 		errMsg  string
 	}{
-		{
-			name:    "valid json logger with debug level",
-			level:   "debug",
-			format:  "json",
-			wantErr: false,
-		},
-		{
-			name:    "valid json logger with info level",
-			level:   "info",
-			format:  "json",
-			wantErr: false,
-		},
-		{
-			name:    "valid json logger with warn level",
-			level:   "warn",
-			format:  "json",
-			wantErr: false,
-		},
-		{
-			name:    "valid json logger with error level",
-			level:   "error",
-			format:  "json",
-			wantErr: false,
-		},
-		{
-			name:    "valid console logger",
-			level:   "info",
-			format:  "console",
-			wantErr: false,
-		},
-		{
-			name:    "invalid log level",
-			level:   "invalid",
-			format:  "json",
-			wantErr: true,
-			errMsg:  "invalid log level",
-		},
-		{
-			name:    "invalid log format",
-			level:   "info",
-			format:  "xml",
-			wantErr: true,
-			errMsg:  "invalid log format",
-		},
+		{name: "json debug", level: "debug", format: "json"},
+		{name: "json info", level: "info", format: "json"},
+		{name: "json warn", level: "warn", format: "json"},
+		{name: "json error", level: "error", format: "json"},
+		{name: "console info", level: "info", format: "console"},
+		{name: "invalid level", level: "invalid", format: "json", wantErr: true, errMsg: "invalid log level"},
+		{name: "invalid format", level: "info", format: "xml", wantErr: true, errMsg: "invalid log format"},
 	}
 
 	for _, tt := range tests {
@@ -66,26 +29,20 @@ func TestNew(t *testing.T) {
 
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("New() expected error containing %q, got nil", tt.errMsg)
-					return
+					t.Fatalf("expected error containing %q, got nil", tt.errMsg)
 				}
-				if tt.errMsg != "" && !contains(err.Error(), tt.errMsg) {
-					t.Errorf("New() error = %v, want error containing %q", err, tt.errMsg)
+				if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Fatalf("error = %v, want substring %q", err, tt.errMsg)
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("New() unexpected error = %v", err)
-				return
+				t.Fatalf("unexpected error: %v", err)
 			}
-
 			if logger == nil {
-				t.Fatal("New() returned nil logger")
+				t.Fatal("expected non-nil logger")
 			}
-
-			// Cleanup
-			_ = logger.Sync()
 		})
 	}
 }
@@ -94,39 +51,14 @@ func TestParseLevel(t *testing.T) {
 	tests := []struct {
 		name      string
 		level     string
-		wantLevel zapcore.Level
+		wantLevel slog.Level
 		wantErr   bool
 	}{
-		{
-			name:      "debug level",
-			level:     "debug",
-			wantLevel: zapcore.DebugLevel,
-			wantErr:   false,
-		},
-		{
-			name:      "info level",
-			level:     "info",
-			wantLevel: zapcore.InfoLevel,
-			wantErr:   false,
-		},
-		{
-			name:      "warn level",
-			level:     "warn",
-			wantLevel: zapcore.WarnLevel,
-			wantErr:   false,
-		},
-		{
-			name:      "error level",
-			level:     "error",
-			wantLevel: zapcore.ErrorLevel,
-			wantErr:   false,
-		},
-		{
-			name:      "invalid level",
-			level:     "fatal",
-			wantLevel: zapcore.InfoLevel, // Default fallback
-			wantErr:   true,
-		},
+		{name: "debug", level: "debug", wantLevel: slog.LevelDebug},
+		{name: "info", level: "info", wantLevel: slog.LevelInfo},
+		{name: "warn", level: "warn", wantLevel: slog.LevelWarn},
+		{name: "error", level: "error", wantLevel: slog.LevelError},
+		{name: "invalid", level: "fatal", wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -135,58 +67,30 @@ func TestParseLevel(t *testing.T) {
 
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("parseLevel() expected error, got nil")
+					t.Fatalf("expected error for level %q", tt.level)
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("parseLevel() unexpected error = %v", err)
-				return
+				t.Fatalf("unexpected error: %v", err)
 			}
 
 			if gotLevel != tt.wantLevel {
-				t.Errorf("parseLevel() = %v, want %v", gotLevel, tt.wantLevel)
+				t.Fatalf("parseLevel()=%v, want %v", gotLevel, tt.wantLevel)
 			}
 		})
 	}
 }
 
 func TestLoggerOutput(t *testing.T) {
-	// Test that logger can actually log without panicking
 	logger, err := New("info", "json")
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	defer func() {
-		_ = logger.Sync()
-	}()
 
-	// These should not panic
-	logger.Info("test info message")
-	logger.Debug("test debug message") // Should not appear with info level
-	logger.Warn("test warn message")
-	logger.Error("test error message")
-}
-
-// contains checks if a string contains a substring.
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && indexString(s, substr) >= 0
-}
-
-// indexString returns the index of the first instance of substr in s, or -1 if substr is not present.
-func indexString(s, substr string) int {
-	n := len(substr)
-	if n == 0 {
-		return 0
-	}
-	if n > len(s) {
-		return -1
-	}
-	for i := 0; i <= len(s)-n; i++ {
-		if s[i:i+n] == substr {
-			return i
-		}
-	}
-	return -1
+	logger.Info("info message")
+	logger.Debug("debug message") // Should not be emitted but must not panic
+	logger.Warn("warn message")
+	logger.Error("error message")
 }
