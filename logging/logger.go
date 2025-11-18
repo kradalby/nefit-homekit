@@ -1,55 +1,54 @@
-// Package logging provides structured logging setup for the nefit-homekit application.
+// Package logging provides repo-wide slog helpers and format parsing.
 package logging
 
 import (
 	"fmt"
-
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
+	"log/slog"
+	"os"
 )
 
-// New creates a new logger with the specified level and format.
-// Level can be "debug", "info", "warn", or "error".
-// Format can be "json" or "console".
-func New(level, format string) (*zap.Logger, error) {
-	zapLevel, err := parseLevel(level)
+// New creates a slog.Logger configured with the desired level and format.
+// format can be "json" or "console".
+func New(level, format string) (*slog.Logger, error) {
+	slogLevel, err := parseLevel(level)
 	if err != nil {
 		return nil, err
 	}
 
-	var config zap.Config
-	switch format {
-	case "json":
-		config = zap.NewProductionConfig()
-	case "console":
-		config = zap.NewDevelopmentConfig()
-		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-	default:
-		return nil, fmt.Errorf("invalid log format %q, must be 'json' or 'console'", format)
+	opts := &slog.HandlerOptions{
+		Level: slogLevel,
 	}
 
-	config.Level = zap.NewAtomicLevelAt(zapLevel)
-
-	logger, err := config.Build()
+	handler, err := buildHandler(format, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build logger: %w", err)
+		return nil, err
 	}
 
-	return logger, nil
+	return slog.New(handler), nil
 }
 
-// parseLevel converts a string level to a zapcore.Level.
-func parseLevel(level string) (zapcore.Level, error) {
+func parseLevel(level string) (slog.Level, error) {
 	switch level {
 	case "debug":
-		return zapcore.DebugLevel, nil
+		return slog.LevelDebug, nil
 	case "info":
-		return zapcore.InfoLevel, nil
+		return slog.LevelInfo, nil
 	case "warn":
-		return zapcore.WarnLevel, nil
+		return slog.LevelWarn, nil
 	case "error":
-		return zapcore.ErrorLevel, nil
+		return slog.LevelError, nil
 	default:
-		return zapcore.InfoLevel, fmt.Errorf("invalid log level %q, must be one of: debug, info, warn, error", level)
+		return slog.LevelInfo, fmt.Errorf("invalid log level %q, must be one of: debug, info, warn, error", level)
+	}
+}
+
+func buildHandler(format string, opts *slog.HandlerOptions) (slog.Handler, error) {
+	switch format {
+	case "json":
+		return slog.NewJSONHandler(os.Stdout, opts), nil
+	case "console":
+		return slog.NewTextHandler(os.Stdout, opts), nil
+	default:
+		return nil, fmt.Errorf("invalid log format %q, must be 'json' or 'console'", format)
 	}
 }

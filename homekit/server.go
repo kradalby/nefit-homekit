@@ -1,9 +1,11 @@
-// Package homekit provides HomeKit HAP server integration.
+// Package homekit wires brutella/hap into the shared eventbus so HomeKit and the
+// thermostat stay in sync.
 package homekit
 
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/brutella/hap"
@@ -11,7 +13,6 @@ import (
 	homekitqr "github.com/kradalby/homekit-qr"
 	"github.com/kradalby/nefit-homekit/config"
 	"github.com/kradalby/nefit-homekit/events"
-	"go.uber.org/zap"
 	"tailscale.com/util/eventbus"
 )
 
@@ -23,7 +24,7 @@ const (
 // Server manages the HomeKit HAP server and accessory.
 type Server struct {
 	cfg       *config.Config
-	logger    *zap.Logger
+	logger    *slog.Logger
 	bus       *events.Bus
 	client    *eventbus.Client
 	server    *hap.Server
@@ -33,7 +34,7 @@ type Server struct {
 }
 
 // New creates a new HomeKit server.
-func New(cfg *config.Config, logger *zap.Logger, bus *events.Bus) (*Server, error) {
+func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is required")
 	}
@@ -95,10 +96,10 @@ func New(cfg *config.Config, logger *zap.Logger, bus *events.Bus) (*Server, erro
 	s.server.Addr = fmt.Sprintf(":%d", cfg.HAPPort)
 
 	logger.Info("homekit server created",
-		zap.String("name", info.Name),
-		zap.String("serial", info.SerialNumber),
-		zap.String("pin", cfg.HAPPin),
-		zap.Int("port", cfg.HAPPort),
+		slog.String("name", info.Name),
+		slog.String("serial", info.SerialNumber),
+		slog.String("pin", cfg.HAPPin),
+		slog.Int("port", cfg.HAPPort),
 	)
 
 	return s, nil
@@ -120,7 +121,7 @@ func (s *Server) Start() error {
 	// Start HAP server in background
 	go func() {
 		if err := s.server.ListenAndServe(s.ctx); err != nil {
-			s.logger.Error("HAP server error", zap.Error(err))
+			s.logger.Error("HAP server error", slog.Any("error", err))
 		}
 	}()
 
@@ -143,7 +144,7 @@ func (s *Server) printSetupQRCode() {
 
 	qrCode, err := homekitqr.GenerateQRTerminal(qrConfig)
 	if err != nil {
-		s.logger.Warn("failed to generate QR code", zap.Error(err))
+		s.logger.Warn("failed to generate QR code", slog.Any("error", err))
 		return
 	}
 
@@ -165,7 +166,7 @@ func (s *Server) setupAccessoryCallbacks() {
 	// Target temperature changed
 	s.accessory.Thermostat.TargetTemperature.OnValueRemoteUpdate(func(temp float64) {
 		s.logger.Info("target temperature changed via HomeKit",
-			zap.Float64("temperature", temp),
+			slog.Float64("temperature", temp),
 		)
 
 		// Publish command event
@@ -180,7 +181,7 @@ func (s *Server) setupAccessoryCallbacks() {
 	// Target heating cooling state changed
 	s.accessory.Thermostat.TargetHeatingCoolingState.OnValueRemoteUpdate(func(state int) {
 		s.logger.Info("heating mode changed via HomeKit",
-			zap.Int("state", state),
+			slog.Int("state", state),
 		)
 
 		// Map HomeKit state to mode string
@@ -193,7 +194,7 @@ func (s *Server) setupAccessoryCallbacks() {
 		case 3: // Auto
 			mode = modeHeat // Nefit only supports heat, not auto
 		default:
-			s.logger.Warn("unknown heating state", zap.Int("state", state))
+			s.logger.Warn("unknown heating state", slog.Int("state", state))
 			return
 		}
 
@@ -233,9 +234,9 @@ func (s *Server) updateAccessory(event events.StateUpdateEvent) {
 	}
 
 	s.logger.Debug("updating accessory from state event",
-		zap.Float64("current_temp", event.CurrentTemperature),
-		zap.Float64("target_temp", event.TargetTemperature),
-		zap.Bool("heating", event.HeatingActive),
+		slog.Float64("current_temp", event.CurrentTemperature),
+		slog.Float64("target_temp", event.TargetTemperature),
+		slog.Bool("heating", event.HeatingActive),
 	)
 
 	// Update current temperature
@@ -258,7 +259,7 @@ func (s *Server) updateAccessory(event events.StateUpdateEvent) {
 	case modeHeat:
 		_ = s.accessory.Thermostat.TargetHeatingCoolingState.SetValue(1) // Heat
 	default:
-		s.logger.Warn("unknown mode", zap.String("mode", event.Mode))
+		s.logger.Warn("unknown mode", slog.String("mode", event.Mode))
 	}
 }
 

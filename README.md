@@ -4,12 +4,12 @@ A HomeKit-enabled server that bridges the Nefit Easy thermostat to Apple HomeKit
 
 ## Features
 
-- 🏠 **HomeKit Integration**: Control your Nefit Easy thermostat from any Apple device
-- 🌐 **Web Interface**: Simple web UI accessible over Tailscale for monitoring and control
-- ⚡ **Event-Driven**: Reactive architecture using Tailscale eventbus for real-time updates
-- 🔄 **Persistent Connection**: Single XMPP connection kept alive for optimal performance
-- 📊 **Prometheus Metrics**: Built-in metrics for monitoring
-- 🔒 **Secure**: Runs as unprivileged user with minimal permissions on NixOS
+- **HomeKit integration**: Control a Nefit Easy thermostat from any Apple device
+- **Web interface**: Tailscale-aware UI for monitoring, control, and HomeKit pairing
+- **Event-driven runtime**: Typed events and eventbus keep HomeKit, the web app, and the Nefit client in sync
+- **Long-lived connection**: Maintains a single authenticated XMPP connection to the boiler
+- **Metrics and health checks**: Prometheus metrics, SSE diagnostics, and JSON health summaries
+- **Hardened NixOS service**: Runs as an unprivileged user with strict systemd sandboxes
 
 ## Architecture
 
@@ -24,53 +24,82 @@ All components communicate via typed events through the eventbus, ensuring clean
 
 ## Usage
 
-### Running the Application
+### Development shell and helper apps
+
+Always enter the flake shell before working:
 
 ```bash
-# Build
-go build ./cmd/nefit-homekit
+nix develop
+```
 
-# Run with environment variables
+Helper apps wrap the standard Go tooling and keep outputs consistent with CI:
+
+```bash
+nix run .#test       # go test -v -cover ./...
+nix run .#test-race  # go test -race ./...
+nix run .#lint       # golangci-lint run ./...
+nix run .#coverage   # Generate coverage.html
+nix flake check --all-systems  # NixOS module + integration tests
+nix build .#nefit-homekit      # Build the release binary
+```
+
+### Local execution
+
+Provide the required environment variables (directly or via an environment file) and run the packaged binary:
+
+```bash
 export NEFITHK_NEFIT_SERIAL="your-serial"
 export NEFITHK_NEFIT_ACCESS_KEY="your-access-key"
 export NEFITHK_NEFIT_PASSWORD="your-password"
-./nefit-homekit
+nix run .#nefit-homekit
 ```
 
-The application will start:
-- **HomeKit Server** on port 12345 (default) - Pair using PIN `00102003`
-- **Web Interface** on port 8080 (default) - http://localhost:8080
+The bridge exposes the HomeKit accessory server (default `:12345`) and the web interface (default `:8080`). Pair using PIN `00102003` unless overridden.
 
 ### Configuration
 
-All configuration via environment variables with `NEFITHK_` prefix:
+All runtime configuration uses `NEFITHK_` environment variables. Create an environment file for deployment and point the service at it via `services.nefit-homekit.environmentFile`:
 
 ```bash
-# Required
-export NEFITHK_NEFIT_SERIAL="your-serial"
-export NEFITHK_NEFIT_ACCESS_KEY="your-key"
-export NEFITHK_NEFIT_PASSWORD="your-password"
-
-# Optional (with defaults)
-export NEFITHK_HAP_PIN="00102003"
-export NEFITHK_HAP_PORT="12345"
-export NEFITHK_WEB_PORT="8080"
-export NEFITHK_LOG_LEVEL="info"
-export NEFITHK_LOG_FORMAT="json"
-
-# Tailscale (optional)
-export NEFITHK_TAILSCALE_ENABLED="false"
-export NEFITHK_TAILSCALE_AUTHKEY="your-authkey"
-export NEFITHK_TAILSCALE_HOSTNAME="nefit-homekit"
+cat >/etc/nefit-homekit/env <<'EOF'
+NEFITHK_NEFIT_SERIAL=your-serial
+NEFITHK_NEFIT_ACCESS_KEY=your-access-key
+NEFITHK_NEFIT_PASSWORD=your-password
+NEFITHK_HAP_PIN=00102003
+NEFITHK_HAP_PORT=12345
+NEFITHK_WEB_PORT=8080
+NEFITHK_LOG_LEVEL=info
+NEFITHK_LOG_FORMAT=json
+# Optional: enable tailscale/kra listener
+# NEFITHK_TAILSCALE_AUTHKEY=tskey-abc
+# NEFITHK_TAILSCALE_HOSTNAME=nefit-homekit
+EOF
+chmod 600 /etc/nefit-homekit/env
 ```
 
-See [NEFIT_IMPLEMENTATION.md](NEFIT_IMPLEMENTATION.md) for full configuration options.
+Set `NEFITHK_HAP_STORAGE_PATH` when the default `/var/lib/nefit-homekit` is not suitable (for example on hosts with dedicated persistent storage).
+
+See [NEFIT_IMPLEMENTATION.md](NEFIT_IMPLEMENTATION.md) for a detailed description of each option and the default values.
+
+### Web Interface & Endpoints
+
+The kra-powered web server listens on `NEFITHK_WEB_BIND_ADDRESS:NEFITHK_WEB_PORT` and exposes the same endpoints locally and over Tailscale:
+
+- `/` – Thermostat dashboard rendered with elem-go.
+- `/events` – SSE stream emitting `StateUpdateEvent` JSON.
+- `/api/temperature` & `/api/mode` – HTMX form handlers for user input.
+- `/health` – JSON health summary (used by monitoring).
+- `/metrics` – Prometheus metrics endpoint.
+- `/qrcode` – Plain-text QR + PIN for headless pairing.
+- `/debug/eventbus` – Diagnostic page for eventbus traffic.
+
+Provide `NEFITHK_TAILSCALE_AUTHKEY` and `NEFITHK_TAILSCALE_HOSTNAME` to expose the same endpoints over Tailscale; kra now reads the auth key directly (no temp files required).
 
 ## NixOS Deployment
 
 ### Using the Flake
 
-Add to your `flake.nix`:
+Add the module to your `flake.nix`:
 
 ```nix
 {
@@ -90,33 +119,44 @@ Add to your `flake.nix`:
 }
 ```
 
-Then in your `configuration.nix`:
+Example host configuration:
 
 ```nix
 { config, pkgs, ... }:
 
 {
-  # Create environment file first:
-  # /etc/nefit-homekit/env should contain:
-  #   NEFITHK_NEFIT_SERIAL=your-serial
-  #   NEFITHK_NEFIT_ACCESS_KEY=your-key
-  #   NEFITHK_NEFIT_PASSWORD=your-password
-  #   NEFITHK_HAP_PIN=12345678
-  # chmod 600 /etc/nefit-homekit/env
+  # Provide credentials via an env file or agenix secret.
+  environment.etc."nefit-homekit/env".text = ''
+    NEFITHK_NEFIT_SERIAL=your-serial
+    NEFITHK_NEFIT_ACCESS_KEY=your-access-key
+    NEFITHK_NEFIT_PASSWORD=your-password
+    NEFITHK_HAP_PIN=12345678
+  '';
 
   services.nefit-homekit = {
     enable = true;
+    package = pkgs.nefit-homekit;
     environmentFile = "/etc/nefit-homekit/env";
+    storagePath = "/var/lib/nefit-homekit";
 
-    # Optional: Tailscale auth key from file (recommended for secrets)
-    # The file content will be passed as NEFITHK_TAILSCALE_AUTHKEY
-    # tailscaleAuthKeyFile = "/run/secrets/tailscale-authkey";
-
-    # Optional: Override or add environment variables
-    environment = {
-      NEFITHK_LOG_LEVEL = "debug";
-      NEFITHK_WEB_PORT = "8080";
+    ports = {
+      hap = 51826;
+      web = 51827;
     };
+
+    tailscale = {
+      hostname = "nefit-homekit";
+      authKeyFile = "/run/secrets/tailscale-authkey";
+    };
+
+    log.level = "debug";
+
+    # Extra NEFITHK_* overrides if needed
+    environment = {
+      NEFITHK_WEB_BIND_ADDRESS = "0.0.0.0";
+    };
+
+    openFirewall = true;
   };
 }
 ```
@@ -124,21 +164,29 @@ Then in your `configuration.nix`:
 ### Available Options
 
 ```
-services.nefit-homekit.enable                   # Enable the service
-services.nefit-homekit.package                  # Package to use (default: pkgs.nefit-homekit)
-services.nefit-homekit.environmentFile          # Path to file with NEFITHK_* env vars
-services.nefit-homekit.tailscaleAuthKeyFile     # Path to file with Tailscale auth key
-services.nefit-homekit.environment              # Attribute set of environment variables
-services.nefit-homekit.user                     # Service user (default: "nefit-homekit")
-services.nefit-homekit.group                    # Service group (default: "nefit-homekit")
+services.nefit-homekit.enable             # Enable the service
+services.nefit-homekit.package            # Package derivation (defaults to pkgs.nefit-homekit)
+services.nefit-homekit.environmentFile    # Path to file with NEFITHK_* values
+services.nefit-homekit.environment        # Attrset of extra NEFITHK_* overrides
+services.nefit-homekit.ports.hap          # HAP port (default 12345)
+services.nefit-homekit.ports.web          # Web port (default 8080)
+services.nefit-homekit.hapPin             # HomeKit PIN (8 digits)
+services.nefit-homekit.storagePath        # Directory for HomeKit storage/state
+services.nefit-homekit.tailscale.hostname # Tailnet hostname when enabled
+services.nefit-homekit.tailscale.authKeyFile # Credential used for Tailscale auth
+services.nefit-homekit.log.level          # slog level (debug/info/warn/error)
+services.nefit-homekit.log.format         # slog format (json/console)
+services.nefit-homekit.openFirewall       # Open HAP/web/mDNS ports automatically
+services.nefit-homekit.user               # Service user (default nefit-homekit)
+services.nefit-homekit.group              # Service group (default nefit-homekit)
 ```
 
-All application configuration is done via environment variables with the `NEFITHK_` prefix.
-See the Configuration section above for available environment variables.
+All application configuration is driven by `NEFITHK_` variables. Use the module options above to control how the service receives those values.
 
 ### Security Features
 
 The NixOS module includes comprehensive security hardening:
+
 - Runs as unprivileged user `nefit-homekit`
 - Filesystem isolation with `ProtectSystem=strict`
 - System call filtering
@@ -185,32 +233,48 @@ We follow a **continuous testing and linting** approach:
 # For each component:
 vim foo.go      # Write code
 vim foo_test.go # Write test
-go test -v ./...    # Test immediately ✅
-golangci-lint run   # Lint immediately ✅
+go test -v ./...    # Test immediately
+golangci-lint run   # Lint immediately
 
 # Before commit:
-nix run .#test      # All tests
-nix run .#lint      # All linters
-nix run .#test-race # Race detector
+nix run .#test           # Coverage build
+nix run .#lint           # Linters
+nix run .#test-race      # Race detector
+nix flake check --all-systems
 ```
+
+## Continuous Integration
+
+`.github/workflows/ci.yml` mirrors the local workflow. Every push and pull request runs:
+
+- `go test -v ./...` with coverage on Linux and macOS
+- `go test -race ./...`
+- `golangci-lint run ./...`
+- `nix build .#nefit-homekit`
+- `nix flake check --all-systems` followed by the VM-based module and integration tests
+
+Only push when the flake apps succeed locally so GitHub Actions stays green.
 
 ## Implementation Status
 
-### ✅ Phase 1: Foundation (COMPLETE)
+### Phase 1: Foundation (COMPLETE)
+
 - golangci-lint configuration with 25+ linters
 - Nix flake for development environment
 - Configuration management with go-env
-- Structured logging with zap
+- Structured logging with slog
 - 100% test coverage on core packages
 
-### ✅ Phase 2: EventBus Setup (COMPLETE)
+### Phase 2: EventBus Setup (COMPLETE)
+
 - Tailscale eventbus integration
 - Event type definitions (State, Command, ConnectionStatus)
 - Named clients for each component
 - Graceful shutdown support
 - 95% test coverage with race detector
 
-### ✅ Phase 3: Nefit Integration (COMPLETE)
+### Phase 3: Nefit Integration (COMPLETE)
+
 - Persistent XMPP connection management
 - Event subscription and push notifications
 - Command handling from eventbus
@@ -218,13 +282,15 @@ nix run .#test-race # Race detector
 - Status polling for keepalive
 - 100% test coverage with race detector
 
-### ✅ Phase 4: HomeKit Integration (COMPLETE)
+### Phase 4: HomeKit Integration (COMPLETE)
+
 - HAP server setup
 - Thermostat accessory implementation
 - EventBus integration
 - 100% test coverage with race detector
 
-### ✅ Phase 5: Web Interface (COMPLETE)
+### Phase 5: Web Interface (COMPLETE)
+
 - HTTP server with elem-go templates
 - SSE for real-time state updates
 - HTMX endpoints for dynamic updates
@@ -232,19 +298,22 @@ nix run .#test-race # Race detector
 - Prometheus metrics endpoint
 - 100% test coverage with race detector
 
-### ✅ Application Integration (COMPLETE)
+### Application Integration (COMPLETE)
+
 - All components wired together in main.go
 - Graceful shutdown with signal handling
 - Comprehensive logging and error handling
 - Application builds and runs successfully
 
-### ✅ Phase 6: Optimization (COMPLETE)
+### Phase 6: Optimization (COMPLETE)
+
 - Event deduplication implemented (skips duplicate state updates)
 - Persistent XMPP connection (no reconnection overhead)
 - Efficient SSE for real-time web updates
 - Note: Request coalescing and connection tuning will be done during hardware testing
 
-### ✅ Phase 7: NixOS Module (COMPLETE)
+### Phase 7: NixOS Module (COMPLETE)
+
 - Full NixOS module with all configuration options
 - Systemd service with security hardening
 - DynamicUser for unprivileged execution
@@ -252,7 +321,8 @@ nix run .#test-race # Race detector
 - Example configurations
 - Flake-based deployment
 
-### ⏳ Phase 8: Hardware Testing & Final Polish (PENDING)
+### Phase 8: Hardware Testing & Final Polish (PENDING)
+
 - Test with real Nefit Easy thermostat
 - Verify HomeKit pairing and control
 - Test web interface functionality
@@ -264,15 +334,15 @@ nix run .#test-race # Race detector
 ```
 nefit-homekit/
 ├── cmd/nefit-homekit/     # Main application
-├── config/                # ✅ Configuration management
-├── events/                # ✅ EventBus wrapper and types
-├── nefit/                 # ✅ Nefit Easy XMPP client
-├── homekit/               # ✅ HomeKit HAP server
-├── web/                   # ✅ Web interface
-├── logging/               # ✅ Structured logging
-├── nix/                   # ✅ NixOS module
-├── flake.nix              # ✅ Development environment
-└── .golangci.yml          # ✅ Linter configuration
+├── config/                # Configuration management
+├── events/                # EventBus wrapper and types
+├── nefit/                 # Nefit Easy XMPP client
+├── homekit/               # HomeKit HAP server
+├── web/                   # Web interface
+├── logging/               # Structured logging
+├── nix/                   # NixOS module and tests
+├── flake.nix              # Development environment
+└── .golangci.yml          # Linter configuration
 ```
 
 ## Testing
@@ -295,6 +365,7 @@ nix run .#test-race   # Run with race detector
 ```
 
 Current coverage:
+
 - `config`: 100.0%
 - `events`: 95.2%
 - `nefit`: All tests passing with race detector
@@ -320,6 +391,7 @@ nix build .#checks.x86_64-linux.module-test.driverInteractive
 ```
 
 Tests cover:
+
 - Service startup and lifecycle
 - Port accessibility (HAP 12345, Web 8080)
 - Environment variable configuration
