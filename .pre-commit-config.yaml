@@ -1,14 +1,9 @@
 # prek/pre-commit configuration for nefit-homekit
-# See: https://prek.j178.dev/quickstart/
-# See: https://prek.j178.dev/builtin/
+# Hooks expect to run inside `nix develop`
 
-# Global exclusions
 exclude: ^(result/|\.direnv/)
 
 repos:
-  # Built-in hooks from pre-commit/pre-commit-hooks
-  # prek will use fast-path optimized versions automatically
-  # See: https://prek.j178.dev/builtin/
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
@@ -26,18 +21,26 @@ repos:
       - id: mixed-line-ending
       - id: trailing-whitespace
 
-  # Local hooks for project-specific tooling
-  # Note: These require running commits from within 'nix develop' shell
   - repo: local
     hooks:
-      # nixpkgs-fmt for Nix files
       - id: nixpkgs-fmt
         name: nixpkgs-fmt
         entry: nixpkgs-fmt
         language: system
         files: \.nix$
 
-      # golangci-lint for Go code quality
+      - id: prettier
+        name: prettier
+        entry: prettier --write --list-different
+        language: system
+        types_or: [yaml, json, markdown]
+
+      - id: gofmt
+        name: gofmt
+        entry: gofmt -w
+        language: system
+        types: [go]
+
       - id: golangci-lint
         name: golangci-lint
         entry: golangci-lint run --new-from-rev=HEAD~1

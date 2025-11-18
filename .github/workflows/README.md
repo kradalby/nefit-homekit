@@ -4,66 +4,38 @@ This directory contains CI/CD workflows for the nefit-homekit project.
 
 ## Workflows
 
-### Build (`build.yml`)
-**Triggers:** Push to main/initial-work, PRs to main
+### CI (`ci.yml`)
 
-Builds the application using Nix on multiple platforms:
-- Ubuntu (Linux)
-- macOS
+**Triggers:** Push to `main`/`initial-work`, PRs targeting `main`.
 
-**Steps:**
-1. Checkout code
-2. Install Nix (DeterminateSystems installer)
-3. Setup Magic Nix Cache (GitHub Actions cache)
-4. Build package with `nix build`
-5. Verify binary works
-6. Upload Linux binary as artifact
+Jobs:
 
-**Artifacts:**
-- `nefit-homekit-linux` - Built binary (7-day retention)
+1. **Tests**
+   - Matrix: `ubuntu-latest`, `macos-latest`
+   - Runs `go test -v -cover` (writes `coverage.out`)
+   - Displays coverage summary and runs `go test -race`
+   - Uploads coverage artifact from the Linux job
 
----
+2. **Lint**
+   - Runs `nix develop --command golangci-lint run ./...`
 
-### Tests (`test.yml`)
-**Triggers:** Push to main/initial-work, PRs to main
+3. **Build**
+   - Matrix: `ubuntu-latest`, `macos-latest`
+   - Builds via `nix build -L .#nefit-homekit`
+   - Emits Linux binary artifact for quick downloads
 
-Runs Go unit tests and linting:
+4. **Flake Check**
+   - Executes `nix flake check --all-systems`
 
-**Unit Tests Job:**
-- Runs on Ubuntu and macOS
-- Executes tests with coverage
-- Runs race detector
-- Uploads coverage report as artifact (Ubuntu only)
+5. **NixOS Tests**
+   - Matrix over `checks.x86_64-linux.module-test` and `checks.x86_64-linux.integration-test`
+   - Enables KVM, runs each VM test with a 30-minute timeout
+   - Dumps logs if a test fails
 
-**Lint Job:**
-- Runs on Ubuntu
-- Executes golangci-lint with 25+ linters
+**Artifacts**
 
-**Commands:**
-```bash
-go test -v -cover -coverprofile=coverage.out ./...
-go test -race ./...
-golangci-lint run ./...
-```
-
----
-
-### NixOS Tests (`nixos-tests.yml`)
-**Triggers:** Push to main/initial-work, PRs to main
-
-Runs NixOS integration tests in VMs:
-
-**NixOS Tests Job:**
-- Matrix strategy runs both tests in parallel
-- Tests: `module-test`, `integration-test`
-- Enables KVM for VM acceleration
-- 30-minute timeout per test
-- Shows logs on failure
-
-**Flake Check Job:**
-- Validates entire flake across all systems
-- Runs `nix flake check --all-systems`
-- 45-minute timeout
+- `coverage-report`: Go coverage profile (Linux only)
+- `nefit-homekit-linux`: built binary (7-day retention)
 
 ---
 
@@ -72,6 +44,7 @@ Runs NixOS integration tests in VMs:
 ### No Secrets Required!
 
 All workflows use:
+
 - **DeterminateSystems Nix Installer** - Official Nix installer for CI
 - **Magic Nix Cache** - GitHub Actions cache integration (automatic)
 
@@ -101,6 +74,7 @@ nix flake check
 ## Caching Strategy
 
 Workflows use **Magic Nix Cache** from DeterminateSystems:
+
 - Automatic integration with GitHub Actions cache
 - No configuration needed
 - Free for public repositories
@@ -115,24 +89,25 @@ Workflows use **Magic Nix Cache** from DeterminateSystems:
 Add to README.md:
 
 ```markdown
-[![Build](https://github.com/kradalby/nefit-homekit/actions/workflows/build.yml/badge.svg)](https://github.com/kradalby/nefit-homekit/actions/workflows/build.yml)
-[![Tests](https://github.com/kradalby/nefit-homekit/actions/workflows/test.yml/badge.svg)](https://github.com/kradalby/nefit-homekit/actions/workflows/test.yml)
-[![NixOS Tests](https://github.com/kradalby/nefit-homekit/actions/workflows/nixos-tests.yml/badge.svg)](https://github.com/kradalby/nefit-homekit/actions/workflows/nixos-tests.yml)
+[![CI](https://github.com/kradalby/nefit-homekit/actions/workflows/ci.yml/badge.svg)](https://github.com/kradalby/nefit-homekit/actions/workflows/ci.yml)
 ```
 
 ## Troubleshooting
 
 ### NixOS tests timeout
+
 - Default timeout: 30 minutes per test
 - Increase if needed in workflow file
 - Check if KVM is properly enabled
 
 ### Build failures
+
 - Check Nix cache is accessible
 - Verify flake.lock is committed
 - Review build logs in Actions tab
 
 ### Test failures
+
 - Check if tests pass locally
 - Review race detector output
 - Ensure go.mod/go.sum are in sync
@@ -140,6 +115,7 @@ Add to README.md:
 ## Performance
 
 Typical run times (with caching):
+
 - Build: 2-5 minutes
 - Tests: 3-5 minutes
 - NixOS tests: 10-15 minutes per test
