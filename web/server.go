@@ -593,28 +593,6 @@ func (s *Server) renderThermostatUI(state *events.StateUpdateEvent) string {
 				const heatModeButton = document.querySelector("button[name='mode'][value='heat']");
 				const offModeButton = document.querySelector("button[name='mode'][value='off']");
 
-				const readNumber = (obj, snake, camel) => {
-					if (typeof obj[snake] === 'number') {
-						return obj[snake];
-					}
-					if (typeof obj[camel] === 'number') {
-						return obj[camel];
-					}
-					return undefined;
-				};
-
-				const readBool = (obj, snake, camel) => {
-					if (typeof obj[snake] === 'boolean') {
-						return obj[snake];
-					}
-					if (typeof obj[camel] === 'boolean') {
-						return obj[camel];
-					}
-					return undefined;
-				};
-
-				const readString = (obj, snake, camel) => obj[snake] ?? obj[camel];
-
 				eventSource.onmessage = function(e) {
 					let data;
 					try {
@@ -624,29 +602,26 @@ func (s *Server) renderThermostatUI(state *events.StateUpdateEvent) string {
 						return;
 					}
 
-					const currentTemp = readNumber(data, 'current_temperature', 'CurrentTemperature');
-					if (typeof currentTemp === 'number') {
+					if (typeof data.current_temperature === 'number') {
 						const currentTempEl = document.getElementById('current-temp');
 						if (currentTempEl) {
-							currentTempEl.textContent = currentTemp.toFixed(1) + '°C';
+							currentTempEl.textContent = data.current_temperature.toFixed(1) + '°C';
 						}
 					}
 
-					const targetTemp = readNumber(data, 'target_temperature', 'TargetTemperature');
-					if (typeof targetTemp === 'number') {
+					if (typeof data.target_temperature === 'number') {
 						if (tempSlider) {
-							tempSlider.value = targetTemp.toFixed(1);
+							tempSlider.value = data.target_temperature.toFixed(1);
 						}
 						if (targetTempDisplay) {
-							targetTempDisplay.textContent = targetTemp.toFixed(1) + '°C';
+							targetTempDisplay.textContent = data.target_temperature.toFixed(1) + '°C';
 						}
 					}
 
-					const heatingActive = readBool(data, 'heating_active', 'HeatingActive');
-					if (typeof heatingActive === 'boolean') {
+					if (typeof data.heating_active === 'boolean') {
 						const heatingStatus = document.getElementById('heating-status');
 						if (heatingStatus) {
-							if (heatingActive) {
+							if (data.heating_active) {
 								heatingStatus.textContent = 'Heating';
 								heatingStatus.className = 'status-heating';
 							} else {
@@ -656,12 +631,11 @@ func (s *Server) renderThermostatUI(state *events.StateUpdateEvent) string {
 						}
 					}
 
-					const mode = readString(data, 'mode', 'Mode');
-					if (mode && heatModeButton && offModeButton) {
-						if (mode === 'heat') {
+					if (typeof data.mode === 'string' && heatModeButton && offModeButton) {
+						if (data.mode === 'heat') {
 							heatModeButton.classList.add('active');
 							offModeButton.classList.remove('active');
-						} else if (mode === 'off') {
+						} else if (data.mode === 'off') {
 							offModeButton.classList.add('active');
 							heatModeButton.classList.remove('active');
 						}
