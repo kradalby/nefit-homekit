@@ -259,8 +259,6 @@ in
             RestrictRealtime = true;
             RestrictSUIDSGID = true;
             RemoveIPC = true;
-            ProtectProc = "invisible";
-            ProcSubset = "pid";
             SystemCallFilter = [
               "@system-service"
               "~@privileged"
