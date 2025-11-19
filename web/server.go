@@ -493,6 +493,85 @@ func (s *Server) renderThermostatUI(state *events.StateUpdateEvent) string {
 		heatingClass = "status-heating"
 	}
 
+	containerChildren := []elem.Node{
+		elem.H1(nil, elem.Text("Nefit Easy Thermostat")),
+	}
+
+	if banner := s.renderHomekitBanner(); banner != nil {
+		containerChildren = append(containerChildren, banner)
+	}
+
+	containerChildren = append(containerChildren,
+		elem.Div(attrs.Props{attrs.Class: "status-card"},
+			elem.Div(attrs.Props{attrs.Class: "temp-display"},
+				elem.Div(attrs.Props{attrs.Class: "current-temp"},
+					elem.Span(attrs.Props{attrs.Class: "label"}, elem.Text("Current")),
+					elem.Span(attrs.Props{attrs.Class: "value", attrs.ID: "current-temp"}, elem.Text(currentTemp)),
+				),
+				elem.Div(attrs.Props{attrs.Class: heatingClass, attrs.ID: "heating-status"}, elem.Text(heatingStatus)),
+			),
+		),
+
+		elem.Div(attrs.Props{attrs.Class: "control-card"},
+			elem.H2(nil, elem.Text("Target Temperature")),
+			elem.Form(attrs.Props{
+				"hx-post":   "/api/temperature",
+				"hx-target": "#response",
+			},
+				elem.Input(attrs.Props{
+					attrs.Type:   "range",
+					attrs.Name:   "temperature",
+					attrs.Min:    "10",
+					attrs.Max:    "30",
+					attrs.Step:   "0.5",
+					attrs.Value:  targetTemp,
+					attrs.ID:     "temp-slider",
+					"hx-trigger": "change",
+				}),
+				elem.Div(attrs.Props{attrs.Class: "temp-value", attrs.ID: "target-temp"}, elem.Text(targetTemp+"°C")),
+			),
+
+			elem.H2(nil, elem.Text("Mode")),
+			elem.Form(attrs.Props{
+				"hx-post":   "/api/mode",
+				"hx-target": "#response",
+			},
+				elem.Div(attrs.Props{attrs.Class: "mode-buttons"},
+					elem.Button(attrs.Props{
+						attrs.Type:  "submit",
+						attrs.Name:  "mode",
+						attrs.Value: modeHeat,
+						attrs.Class: func() string {
+							if mode == modeHeat {
+								return "mode-btn active"
+							}
+							return "mode-btn"
+						}(),
+					}, elem.Text("Heat")),
+					elem.Button(attrs.Props{
+						attrs.Type:  "submit",
+						attrs.Name:  "mode",
+						attrs.Value: modeOff,
+						attrs.Class: func() string {
+							if mode == modeOff {
+								return "mode-btn active"
+							}
+							return "mode-btn"
+						}(),
+					}, elem.Text("Off")),
+				),
+			),
+
+			elem.Div(attrs.Props{attrs.ID: "response"}),
+		),
+
+		elem.Div(attrs.Props{attrs.Class: "links"},
+			elem.A(attrs.Props{attrs.Href: "/debug/eventbus"}, elem.Text("EventBus Debug")),
+			elem.Text(" | "),
+			elem.A(attrs.Props{attrs.Href: "/metrics"}, elem.Text("Metrics")),
+		),
+	)
+
 	return elem.Html(nil,
 		elem.Head(nil,
 			elem.Title(nil, elem.Text("Nefit Easy Thermostat")),
@@ -503,76 +582,7 @@ func (s *Server) renderThermostatUI(state *events.StateUpdateEvent) string {
 		),
 		elem.Body(nil,
 			elem.Div(attrs.Props{attrs.Class: "container"},
-				elem.H1(nil, elem.Text("Nefit Easy Thermostat")),
-
-				elem.Div(attrs.Props{attrs.Class: "status-card"},
-					elem.Div(attrs.Props{attrs.Class: "temp-display"},
-						elem.Div(attrs.Props{attrs.Class: "current-temp"},
-							elem.Span(attrs.Props{attrs.Class: "label"}, elem.Text("Current")),
-							elem.Span(attrs.Props{attrs.Class: "value", attrs.ID: "current-temp"}, elem.Text(currentTemp)),
-						),
-						elem.Div(attrs.Props{attrs.Class: heatingClass, attrs.ID: "heating-status"}, elem.Text(heatingStatus)),
-					),
-				),
-
-				elem.Div(attrs.Props{attrs.Class: "control-card"},
-					elem.H2(nil, elem.Text("Target Temperature")),
-					elem.Form(attrs.Props{
-						"hx-post":   "/api/temperature",
-						"hx-target": "#response",
-					},
-						elem.Input(attrs.Props{
-							attrs.Type:   "range",
-							attrs.Name:   "temperature",
-							attrs.Min:    "10",
-							attrs.Max:    "30",
-							attrs.Step:   "0.5",
-							attrs.Value:  targetTemp,
-							attrs.ID:     "temp-slider",
-							"hx-trigger": "change",
-						}),
-						elem.Div(attrs.Props{attrs.Class: "temp-value", attrs.ID: "target-temp"}, elem.Text(targetTemp+"°C")),
-					),
-
-					elem.H2(nil, elem.Text("Mode")),
-					elem.Form(attrs.Props{
-						"hx-post":   "/api/mode",
-						"hx-target": "#response",
-					},
-						elem.Div(attrs.Props{attrs.Class: "mode-buttons"},
-							elem.Button(attrs.Props{
-								attrs.Type:  "submit",
-								attrs.Name:  "mode",
-								attrs.Value: modeHeat,
-								attrs.Class: func() string {
-									if mode == modeHeat {
-										return "mode-btn active"
-									}
-									return "mode-btn"
-								}(),
-							}, elem.Text("Heat")),
-							elem.Button(attrs.Props{
-								attrs.Type:  "submit",
-								attrs.Name:  "mode",
-								attrs.Value: modeOff,
-								attrs.Class: func() string {
-									if mode == modeOff {
-										return "mode-btn active"
-									}
-									return "mode-btn"
-								}(),
-							}, elem.Text("Off")),
-						),
-					),
-
-					elem.Div(attrs.Props{attrs.ID: "response"}),
-				),
-
-				elem.Div(attrs.Props{attrs.Class: "links"},
-					elem.A(attrs.Props{attrs.Href: "/debug/eventbus"}, elem.Text("EventBus Debug")),
-					elem.Text(" | "),
-					elem.A(attrs.Props{attrs.Href: "/metrics"}, elem.Text("Metrics")),
-				),
+				containerChildren...,
 			),
 
 			// SSE handler script
@@ -601,6 +611,54 @@ func (s *Server) renderThermostatUI(state *events.StateUpdateEvent) string {
 			`)),
 		),
 	).Render()
+}
+
+func (s *Server) renderHomekitBanner() elem.Node {
+	if s.cfg == nil || s.cfg.HAPPin == "" {
+		return nil
+	}
+
+	formattedPIN := homekitqr.FormatPairingCode(s.cfg.HAPPin)
+
+	var qrContent []elem.Node
+	qrContent = append(qrContent,
+		elem.Div(attrs.Props{attrs.Class: "homekit-pin"},
+			elem.Span(attrs.Props{attrs.Class: "homekit-pin-label"}, elem.Text("Setup PIN")),
+			elem.Span(attrs.Props{attrs.Class: "homekit-pin-value"}, elem.Text(formattedPIN)),
+		),
+	)
+
+	if s.qrCode != "" {
+		qrContent = append(qrContent,
+			elem.Div(attrs.Props{attrs.Class: "qr-code-block"},
+				elem.Pre(attrs.Props{attrs.Class: "qr-code"}, elem.Text(s.qrCode)),
+			),
+			elem.P(attrs.Props{attrs.Class: "homekit-instructions"},
+				elem.Text("Scan the QR code from the Home app or camera on your iPhone/iPad."),
+			),
+		)
+	} else {
+		qrContent = append(qrContent,
+			elem.P(attrs.Props{attrs.Class: "homekit-instructions"},
+				elem.Text("QR code is not available on this host. Use the setup PIN above."),
+			),
+		)
+	}
+
+	qrContent = append(qrContent,
+		elem.P(attrs.Props{attrs.Class: "homekit-instructions"},
+			elem.Text("Home app → Add Accessory → More Options → Select \"Nefit Easy\"."),
+		),
+		elem.A(attrs.Props{attrs.Href: "/qrcode", attrs.Class: "homekit-link"}, elem.Text("Open standalone QR view")),
+	)
+
+	return elem.Details(attrs.Props{attrs.Class: "homekit-banner"},
+		elem.Summary(nil,
+			elem.Span(attrs.Props{attrs.Class: "homekit-summary-title"}, elem.Text("HomeKit Pairing")),
+			elem.Span(attrs.Props{attrs.Class: "homekit-summary-caption"}, elem.Text("Tap to reveal setup PIN & QR code")),
+		),
+		elem.Div(attrs.Props{attrs.Class: "homekit-banner-content"}, qrContent...),
+	)
 }
 
 // renderEventBusDebug renders the EventBus debugger interface.
@@ -786,6 +844,78 @@ func (s *Server) getCSS() string {
 			padding: 10px;
 			border-radius: 5px;
 			text-align: center;
+		}
+		.homekit-banner {
+			border: 2px solid #0a84ff;
+			border-radius: 18px;
+			background: rgba(255,255,255,0.95);
+			box-shadow: 0 15px 30px rgba(15,23,42,0.15);
+			margin-bottom: 24px;
+		}
+		.homekit-banner summary {
+			cursor: pointer;
+			padding: 18px 24px;
+			font-weight: 600;
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			color: #0f172a;
+		}
+		.homekit-banner summary::-webkit-details-marker {
+			display: none;
+		}
+		.homekit-summary-caption {
+			font-size: 0.9em;
+			color: #475569;
+		}
+		.homekit-banner[open] summary {
+			border-bottom: 1px solid #c7dbff;
+		}
+		.homekit-banner-content {
+			padding: 20px 24px;
+			display: flex;
+			flex-direction: column;
+			gap: 16px;
+		}
+		.homekit-pin {
+			display: flex;
+			flex-direction: column;
+		}
+		.homekit-pin-label {
+			font-size: 0.85em;
+			color: #475569;
+			text-transform: uppercase;
+			letter-spacing: 0.08em;
+		}
+		.homekit-pin-value {
+			font-size: 2em;
+			font-weight: 700;
+			letter-spacing: 0.08em;
+			color: #0f172a;
+		}
+		.qr-code-block {
+			overflow-x: auto;
+		}
+		.qr-code {
+			font-family: "SFMono-Regular", Consolas, monospace;
+			line-height: 1;
+			font-size: 8px;
+			background: white;
+			padding: 12px;
+			border-radius: 8px;
+			border: 1px solid #c7dbff;
+			display: inline-block;
+		}
+		.homekit-instructions {
+			color: #475569;
+		}
+		.homekit-link {
+			color: #0a84ff;
+			font-weight: 600;
+			text-decoration: none;
+		}
+		.homekit-link:hover {
+			text-decoration: underline;
 		}
 	`
 }
