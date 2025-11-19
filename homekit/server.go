@@ -21,7 +21,7 @@ const (
 	modeHeat = "heat"
 
 	// Temperature constants.
-	tempOff       = 13.0 // Temperature to set when "off"
+	tempOff       = 0.0  // Temperature to set when "off" (special value)
 	tempDefaultOn = 18.0 // Default temperature when turning "on" with no previous state
 )
 
