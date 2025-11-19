@@ -3,6 +3,7 @@ package web
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -21,6 +22,9 @@ import (
 	"github.com/kradalby/nefit-homekit/events"
 	"tailscale.com/util/eventbus"
 )
+
+//go:embed static/app.js
+var appJS string
 
 const (
 	modeOff  = "off"
@@ -119,6 +123,7 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 	s.kraweb.Handle("/qrcode", http.HandlerFunc(s.handleQRCode))
 	s.kraweb.Handle("/debug/eventbus", http.HandlerFunc(s.handleEventBusDebug))
 	s.kraweb.Handle("/health", http.HandlerFunc(s.handleHealth))
+	s.kraweb.Handle("/static/app.js", http.HandlerFunc(s.handleStaticJS))
 
 	logger.Info("web server created",
 		slog.String("addr", cfg.WebAddrPort().String()),
@@ -368,6 +373,19 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
+// handleStaticJS serves the embedded JavaScript file.
+func (s *Server) handleStaticJS(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(appJS))
+}
+
 // publishConnectionStatus publishes a connection status event.
 func (s *Server) publishConnectionStatus(status events.ConnectionStatus, errMsg string) {
 	event := events.ConnectionStatusEvent{
@@ -585,69 +603,8 @@ func (s *Server) renderThermostatUI(state *events.StateUpdateEvent) string {
 				containerChildren...,
 			),
 
-			// SSE handler script
-			elem.Script(nil, elem.Text(`
-				const eventSource = new EventSource('/events');
-				const tempSlider = document.getElementById('temp-slider');
-				const targetTempDisplay = document.getElementById('target-temp');
-				const heatModeButton = document.querySelector("button[name='mode'][value='heat']");
-				const offModeButton = document.querySelector("button[name='mode'][value='off']");
-
-				eventSource.onmessage = function(e) {
-					let data;
-					try {
-						data = JSON.parse(e.data);
-					} catch (err) {
-						console.error('failed to parse SSE payload', err);
-						return;
-					}
-
-					if (typeof data.current_temperature === 'number') {
-						const currentTempEl = document.getElementById('current-temp');
-						if (currentTempEl) {
-							currentTempEl.textContent = data.current_temperature.toFixed(1) + '°C';
-						}
-					}
-
-					if (typeof data.target_temperature === 'number') {
-						if (tempSlider) {
-							tempSlider.value = data.target_temperature.toFixed(1);
-						}
-						if (targetTempDisplay) {
-							targetTempDisplay.textContent = data.target_temperature.toFixed(1) + '°C';
-						}
-					}
-
-					if (typeof data.heating_active === 'boolean') {
-						const heatingStatus = document.getElementById('heating-status');
-						if (heatingStatus) {
-							if (data.heating_active) {
-								heatingStatus.textContent = 'Heating';
-								heatingStatus.className = 'status-heating';
-							} else {
-								heatingStatus.textContent = 'Off';
-								heatingStatus.className = 'status-off';
-							}
-						}
-					}
-
-					if (typeof data.mode === 'string' && heatModeButton && offModeButton) {
-						if (data.mode === 'heat') {
-							heatModeButton.classList.add('active');
-							offModeButton.classList.remove('active');
-						} else if (data.mode === 'off') {
-							offModeButton.classList.add('active');
-							heatModeButton.classList.remove('active');
-						}
-					}
-				};
-
-				if (tempSlider && targetTempDisplay) {
-					tempSlider.addEventListener('input', function(e) {
-						targetTempDisplay.textContent = e.target.value + '°C';
-					});
-				}
-			`)),
+			// Load external JavaScript
+			elem.Script(attrs.Props{attrs.Src: "/static/app.js"}),
 		),
 	).Render()
 }
