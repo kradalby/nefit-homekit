@@ -19,6 +19,10 @@ import (
 const (
 	modeOff  = "off"
 	modeHeat = "heat"
+
+	// Temperature constants.
+	tempOff       = 13.0 // Temperature to set when "off"
+	tempDefaultOn = 18.0 // Default temperature when turning "on" with no previous state
 )
 
 // Server manages the HomeKit HAP server and accessory.
@@ -182,27 +186,87 @@ func (s *Server) setupAccessoryCallbacks() {
 			slog.Int("state", state),
 		)
 
-		// Map HomeKit state to mode string
-		var mode string
 		switch state {
 		case 0: // Off
-			mode = modeOff
-		case 1: // Heat
-			mode = modeHeat
-		case 3: // Auto
-			mode = modeHeat // Nefit only supports heat, not auto
+			// Save current temperature before turning "off"
+			currentTemp := s.accessory.Thermostat.TargetTemperature.Value()
+			if err := savePreviousTemperature(s.cfg.HAPStoragePath, currentTemp); err != nil {
+				s.logger.Warn("failed to save previous temperature",
+					slog.Any("error", err),
+					slog.Float64("temperature", currentTemp),
+				)
+			} else {
+				s.logger.Info("saved previous temperature",
+					slog.Float64("temperature", currentTemp),
+				)
+			}
+
+			// Set to manual mode (heat) at low temperature
+			mode := modeHeat
+			temp := tempOff
+
+			s.logger.Info("turning off: setting to manual mode at low temperature",
+				slog.Float64("temperature", temp),
+			)
+
+			// Publish mode command
+			modeEvent := events.CommandEvent{
+				Source:      "homekit",
+				CommandType: events.CommandTypeSetMode,
+				Mode:        &mode,
+			}
+			s.bus.PublishCommand(s.client, modeEvent)
+
+			// Publish temperature command
+			tempEvent := events.CommandEvent{
+				Source:            "homekit",
+				CommandType:       events.CommandTypeSetTemperature,
+				TargetTemperature: &temp,
+			}
+			s.bus.PublishCommand(s.client, tempEvent)
+
+		case 1, 3: // Heat or Auto (Nefit only supports heat)
+			// Load previous temperature or use default
+			temp := tempDefaultOn
+			if prevTemp, err := loadPreviousTemperature(s.cfg.HAPStoragePath); err == nil {
+				temp = prevTemp
+				s.logger.Info("restored previous temperature",
+					slog.Float64("temperature", temp),
+				)
+			} else {
+				s.logger.Info("using default temperature (no previous state)",
+					slog.Float64("temperature", temp),
+					slog.Any("error", err),
+				)
+			}
+
+			// Set to manual mode (heat)
+			mode := modeHeat
+
+			s.logger.Info("turning on: setting to manual mode",
+				slog.Float64("temperature", temp),
+			)
+
+			// Publish mode command
+			modeEvent := events.CommandEvent{
+				Source:      "homekit",
+				CommandType: events.CommandTypeSetMode,
+				Mode:        &mode,
+			}
+			s.bus.PublishCommand(s.client, modeEvent)
+
+			// Publish temperature command
+			tempEvent := events.CommandEvent{
+				Source:            "homekit",
+				CommandType:       events.CommandTypeSetTemperature,
+				TargetTemperature: &temp,
+			}
+			s.bus.PublishCommand(s.client, tempEvent)
+
 		default:
 			s.logger.Warn("unknown heating state", slog.Int("state", state))
 			return
 		}
-
-		// Publish command event
-		event := events.CommandEvent{
-			Source:      "homekit",
-			CommandType: events.CommandTypeSetMode,
-			Mode:        &mode,
-		}
-		s.bus.PublishCommand(s.client, event)
 	})
 }
 
