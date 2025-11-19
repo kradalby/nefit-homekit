@@ -21,15 +21,15 @@ const (
 
 // StateUpdateEvent is published when the thermostat state changes.
 type StateUpdateEvent struct {
-	Timestamp           time.Time
-	Source              string  // "nefit", "homekit", "web"
-	CurrentTemperature  float64 // Celsius
-	TargetTemperature   float64 // Celsius
-	HeatingActive       bool
-	Mode                string  // "heat", "off"
-	Pressure            float64 // Bar
-	HotWaterActive      bool
-	HotWaterTemperature float64 // Celsius
+	Timestamp           time.Time `json:"timestamp"`
+	Source              string    `json:"source"`              // "nefit", "homekit", "web"
+	CurrentTemperature  float64   `json:"current_temperature"` // Celsius
+	TargetTemperature   float64   `json:"target_temperature"`  // Celsius
+	HeatingActive       bool      `json:"heating_active"`
+	Mode                string    `json:"mode"`     // "heat", "off"
+	Pressure            float64   `json:"pressure"` // Bar
+	HotWaterActive      bool      `json:"hot_water_active"`
+	HotWaterTemperature float64   `json:"hot_water_temperature"` // Celsius
 }
 
 // Equals compares two StateUpdateEvent for equality, ignoring Timestamp and Source.
@@ -55,12 +55,12 @@ func abs(x float64) float64 {
 
 // CommandEvent is published when a command should be executed.
 type CommandEvent struct {
-	Timestamp         time.Time
-	Source            string // "homekit", "web"
-	CommandType       CommandType
-	TargetTemperature *float64 // For SetTemperature
-	Mode              *string  // For SetMode
-	HotWaterEnabled   *bool    // For SetHotWater
+	Timestamp         time.Time   `json:"timestamp"`
+	Source            string      `json:"source"` // "homekit", "web"
+	CommandType       CommandType `json:"command_type"`
+	TargetTemperature *float64    `json:"target_temperature,omitempty"` // For SetTemperature
+	Mode              *string     `json:"mode,omitempty"`               // For SetMode
+	HotWaterEnabled   *bool       `json:"hot_water_enabled,omitempty"`  // For SetHotWater
 }
 
 // CommandType represents the type of command.
@@ -79,11 +79,11 @@ const (
 
 // ConnectionStatusEvent is published when connection status changes.
 type ConnectionStatusEvent struct {
-	Timestamp  time.Time
-	Component  string // "nefit", "homekit", "web"
-	Status     ConnectionStatus
-	Error      string // Empty if no error
-	Reconnects int    // Number of reconnection attempts
+	Timestamp  time.Time        `json:"timestamp"`
+	Component  string           `json:"component"` // "nefit", "homekit", "web"
+	Status     ConnectionStatus `json:"status"`
+	Error      string           `json:"error"`      // Empty if no error
+	Reconnects int              `json:"reconnects"` // Number of reconnection attempts
 }
 
 // ConnectionStatus represents the connection status.

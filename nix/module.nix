@@ -105,6 +105,20 @@ in
       };
     };
 
+    bindAddresses = {
+      hap = mkOption {
+        type = types.str;
+        default = "0.0.0.0";
+        description = "Address to bind the HAP listener to.";
+      };
+
+      web = mkOption {
+        type = types.str;
+        default = "0.0.0.0";
+        description = "Address to bind the web listener to.";
+      };
+    };
+
     hapPin = mkOption {
       type = types.str;
       default = "00102003";
@@ -166,6 +180,8 @@ in
       systemd.services.nefit-homekit =
         let
           envVars = {
+            NEFITHK_HAP_ADDR = "${cfg.bindAddresses.hap}:${toString cfg.ports.hap}";
+            NEFITHK_WEB_ADDR = "${cfg.bindAddresses.web}:${toString cfg.ports.web}";
             NEFITHK_HAP_PORT = toString cfg.ports.hap;
             NEFITHK_WEB_PORT = toString cfg.ports.web;
             NEFITHK_HAP_PIN = cfg.hapPin;

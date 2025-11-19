@@ -39,6 +39,7 @@ func newTestClient(t *testing.T) (*Client, *events.Bus, func()) {
 		XMPPReconnectBackoff:  time.Second,
 		XMPPMaxReconnectWait:  5 * time.Second,
 	}
+	cfg.SetListenerAddrsForTesting("127.0.0.1:12345", "127.0.0.1:8080")
 
 	client := &Client{
 		cfg:    cfg,

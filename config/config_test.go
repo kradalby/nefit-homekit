@@ -80,7 +80,7 @@ func TestLoadConfig(t *testing.T) {
 				"NEFITHK_HAP_PORT":         "0",
 			},
 			wantErr: true,
-			errMsg:  "HAP port must be between 1 and 65535",
+			errMsg:  "HAP port must be between",
 		},
 		{
 			name: "invalid HAP port (too high)",
@@ -91,7 +91,7 @@ func TestLoadConfig(t *testing.T) {
 				"NEFITHK_HAP_PORT":         "65536",
 			},
 			wantErr: true,
-			errMsg:  "HAP port must be between 1 and 65535",
+			errMsg:  "HAP port must be between",
 		},
 		{
 			name: "invalid web port",
@@ -102,7 +102,7 @@ func TestLoadConfig(t *testing.T) {
 				"NEFITHK_WEB_PORT":         "100000",
 			},
 			wantErr: true,
-			errMsg:  "web port must be between 1 and 65535",
+			errMsg:  "web port must be between",
 		},
 		{
 			name: "invalid log level",
@@ -178,31 +178,38 @@ func TestConfigDefaults(t *testing.T) {
 	}
 
 	// Check defaults
-	tests := []struct {
-		name     string
-		got      interface{}
-		expected interface{}
-	}{
-		{"HAPPin", cfg.HAPPin, "00102003"},
-		{"HAPStoragePath", cfg.HAPStoragePath, "/var/lib/nefit-homekit"},
-		{"HAPPort", cfg.HAPPort, 12345},
-		{"TailscaleHostname", cfg.TailscaleHostname, "nefit-homekit"},
-		{"WebPort", cfg.WebPort, 8080},
-		{"WebBindAddress", cfg.WebBindAddress, "0.0.0.0"},
-		{"XMPPKeepaliveInterval", cfg.XMPPKeepaliveInterval, 30 * time.Second},
-		{"XMPPReconnectBackoff", cfg.XMPPReconnectBackoff, 5 * time.Second},
-		{"XMPPMaxReconnectWait", cfg.XMPPMaxReconnectWait, 5 * time.Minute},
-		{"EventBusDebugEnabled", cfg.EventBusDebugEnabled, true},
-		{"LogLevel", cfg.LogLevel, "info"},
-		{"LogFormat", cfg.LogFormat, "json"},
+	if cfg.HAPAddrPort().String() != "0.0.0.0:12345" {
+		t.Errorf("HAP addr = %s, want 0.0.0.0:12345", cfg.HAPAddrPort())
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.got != tt.expected {
-				t.Errorf("%s = %v, want %v", tt.name, tt.got, tt.expected)
-			}
-		})
+	if cfg.WebAddrPort().String() != "0.0.0.0:8080" {
+		t.Errorf("Web addr = %s, want 0.0.0.0:8080", cfg.WebAddrPort())
+	}
+	if cfg.HAPPin != "00102003" {
+		t.Errorf("HAPPin = %s, want 00102003", cfg.HAPPin)
+	}
+	if cfg.HAPStoragePath != "/var/lib/nefit-homekit" {
+		t.Errorf("HAPStoragePath = %s, want /var/lib/nefit-homekit", cfg.HAPStoragePath)
+	}
+	if cfg.TailscaleHostname != "nefit-homekit" {
+		t.Errorf("TailscaleHostname = %s, want nefit-homekit", cfg.TailscaleHostname)
+	}
+	if cfg.XMPPKeepaliveInterval != 30*time.Second {
+		t.Errorf("XMPPKeepaliveInterval = %s, want 30s", cfg.XMPPKeepaliveInterval)
+	}
+	if cfg.XMPPReconnectBackoff != 5*time.Second {
+		t.Errorf("XMPPReconnectBackoff = %s, want 5s", cfg.XMPPReconnectBackoff)
+	}
+	if cfg.XMPPMaxReconnectWait != 5*time.Minute {
+		t.Errorf("XMPPMaxReconnectWait = %s, want 5m", cfg.XMPPMaxReconnectWait)
+	}
+	if !cfg.EventBusDebugEnabled {
+		t.Errorf("EventBusDebugEnabled = false, want true")
+	}
+	if cfg.LogLevel != "info" {
+		t.Errorf("LogLevel = %s, want info", cfg.LogLevel)
+	}
+	if cfg.LogFormat != "json" {
+		t.Errorf("LogFormat = %s, want json", cfg.LogFormat)
 	}
 }
 

@@ -89,17 +89,15 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 		return nil, fmt.Errorf("failed to create HAP server: %w", err)
 	}
 
-	// Set pin
+	// Set pin and listen address
 	s.server.Pin = cfg.HAPPin
-
-	// Set port
-	s.server.Addr = fmt.Sprintf(":%d", cfg.HAPPort)
+	s.server.Addr = cfg.HAPAddrPort().String()
 
 	logger.Info("homekit server created",
 		slog.String("name", info.Name),
 		slog.String("serial", info.SerialNumber),
 		slog.String("pin", cfg.HAPPin),
-		slog.Int("port", cfg.HAPPort),
+		slog.String("addr", cfg.HAPAddrPort().String()),
 	)
 
 	return s, nil

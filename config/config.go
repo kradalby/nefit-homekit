@@ -4,9 +4,17 @@ package config
 
 import (
 	"fmt"
+	"net/netip"
+	"os"
 	"time"
 
 	"github.com/Netflix/go-env"
+)
+
+const (
+	defaultBindAddress = "0.0.0.0"
+	defaultHAPPort     = 12345
+	defaultWebPort     = 8080
 )
 
 // Config holds all configuration for the nefit-homekit application.
@@ -19,6 +27,8 @@ type Config struct {
 	// HomeKit Configuration
 	HAPPin         string `env:"NEFITHK_HAP_PIN,default=00102003"`
 	HAPStoragePath string `env:"NEFITHK_HAP_STORAGE_PATH,default=/var/lib/nefit-homekit"`
+	HAPAddr        string `env:"NEFITHK_HAP_ADDR"`
+	HAPBindAddress string `env:"NEFITHK_HAP_BIND_ADDRESS,default=0.0.0.0"`
 	HAPPort        int    `env:"NEFITHK_HAP_PORT,default=12345"`
 
 	// Tailscale Configuration
@@ -26,8 +36,9 @@ type Config struct {
 	TailscaleHostname string `env:"NEFITHK_TAILSCALE_HOSTNAME,default=nefit-homekit"`
 
 	// Web Server Configuration
-	WebPort        int    `env:"NEFITHK_WEB_PORT,default=8080"`
+	WebAddr        string `env:"NEFITHK_WEB_ADDR"`
 	WebBindAddress string `env:"NEFITHK_WEB_BIND_ADDRESS,default=0.0.0.0"`
+	WebPort        int    `env:"NEFITHK_WEB_PORT,default=8080"`
 
 	// XMPP Connection Configuration
 	XMPPKeepaliveInterval time.Duration `env:"NEFITHK_XMPP_KEEPALIVE_INTERVAL,default=30s"`
@@ -40,6 +51,9 @@ type Config struct {
 	// Logging
 	LogLevel  string `env:"NEFITHK_LOG_LEVEL,default=info"`
 	LogFormat string `env:"NEFITHK_LOG_FORMAT,default=json"`
+
+	hapAddr netip.AddrPort
+	webAddr netip.AddrPort
 }
 
 // Load reads configuration from environment variables.
@@ -66,12 +80,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("HAP pin must be exactly 8 digits, got %d", len(c.HAPPin))
 	}
 
-	// Validate port ranges
-	if c.HAPPort < 1 || c.HAPPort > 65535 {
-		return fmt.Errorf("HAP port must be between 1 and 65535, got %d", c.HAPPort)
-	}
-	if c.WebPort < 1 || c.WebPort > 65535 {
-		return fmt.Errorf("web port must be between 1 and 65535, got %d", c.WebPort)
+	if err := c.parseAddrPorts(); err != nil {
+		return err
 	}
 
 	// Validate timing configurations
@@ -106,4 +116,85 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+func (c *Config) parseAddrPorts() error {
+	if c.HAPBindAddress == "" {
+		c.HAPBindAddress = defaultBindAddress
+	}
+	if c.HAPPort == 0 && !envVarSet("NEFITHK_HAP_PORT") {
+		c.HAPPort = defaultHAPPort
+	}
+	if err := validatePortRange("HAP port", c.HAPPort); err != nil {
+		return err
+	}
+	hapAddr := c.HAPAddr
+	if hapAddr == "" {
+		hapAddr = fmt.Sprintf("%s:%d", c.HAPBindAddress, c.HAPPort)
+	}
+	parsedHAP, err := netip.ParseAddrPort(hapAddr)
+	if err != nil {
+		return fmt.Errorf("invalid HAP addr %q: %w", hapAddr, err)
+	}
+	c.hapAddr = parsedHAP
+
+	if c.WebBindAddress == "" {
+		c.WebBindAddress = defaultBindAddress
+	}
+	if c.WebPort == 0 && !envVarSet("NEFITHK_WEB_PORT") {
+		c.WebPort = defaultWebPort
+	}
+	if err := validatePortRange("web port", c.WebPort); err != nil {
+		return err
+	}
+
+	webAddr := c.WebAddr
+	if webAddr == "" {
+		webAddr = fmt.Sprintf("%s:%d", c.WebBindAddress, c.WebPort)
+	}
+	parsedWeb, err := netip.ParseAddrPort(webAddr)
+	if err != nil {
+		return fmt.Errorf("invalid web addr %q: %w", webAddr, err)
+	}
+	c.webAddr = parsedWeb
+
+	return nil
+}
+
+// HAPAddrPort returns the parsed HAP listener address.
+func (c *Config) HAPAddrPort() netip.AddrPort {
+	c.ensureAddrs()
+	return c.hapAddr
+}
+
+// WebAddrPort returns the parsed web listener address.
+func (c *Config) WebAddrPort() netip.AddrPort {
+	c.ensureAddrs()
+	return c.webAddr
+}
+
+func (c *Config) ensureAddrs() {
+	if !c.hapAddr.IsValid() || !c.webAddr.IsValid() {
+		if err := c.parseAddrPorts(); err != nil {
+			panic(fmt.Sprintf("failed to parse listener addresses: %v", err))
+		}
+	}
+}
+
+// SetListenerAddrsForTesting overrides parsed listener addresses.
+func (c *Config) SetListenerAddrsForTesting(hap, web string) {
+	c.hapAddr = netip.MustParseAddrPort(hap)
+	c.webAddr = netip.MustParseAddrPort(web)
+}
+
+func validatePortRange(name string, port int) error {
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("%s must be between 1 and 65535, got %d", name, port)
+	}
+	return nil
+}
+
+func envVarSet(key string) bool {
+	_, ok := os.LookupEnv(key)
+	return ok
 }

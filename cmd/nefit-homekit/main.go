@@ -42,8 +42,8 @@ func run() error {
 		slog.String("log_level", cfg.LogLevel),
 		slog.String("log_format", cfg.LogFormat),
 		slog.String("nefit_serial", cfg.NefitSerial),
-		slog.Int("hap_port", cfg.HAPPort),
-		slog.Int("web_port", cfg.WebPort),
+		slog.String("hap_addr", cfg.HAPAddrPort().String()),
+		slog.String("web_addr", cfg.WebAddrPort().String()),
 	)
 
 	// Initialize EventBus
@@ -106,15 +106,15 @@ func run() error {
 	}
 
 	logger.Info("nefit-homekit started successfully",
-		slog.Int("hap_port", cfg.HAPPort),
-		slog.Int("web_port", cfg.WebPort),
+		slog.String("hap_addr", cfg.HAPAddrPort().String()),
+		slog.String("web_addr", cfg.WebAddrPort().String()),
 	)
 	logger.Info("homekit pairing",
 		slog.String("pin", cfg.HAPPin),
 		slog.String("instructions", "Use the Home app to add accessory with PIN"),
 	)
 	logger.Info("web interface",
-		slog.String("url", fmt.Sprintf("http://localhost:%d", cfg.WebPort)),
+		slog.String("url", fmt.Sprintf("http://%s", cfg.WebAddrPort().String())),
 	)
 
 	// Wait for shutdown signal

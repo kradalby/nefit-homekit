@@ -84,7 +84,7 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 	stdLogger := log.New(os.Stdout, "kraweb: ", log.LstdFlags)
 	kraConfig := web.ServerConfig{
 		Hostname:        cfg.TailscaleHostname,
-		LocalAddr:       fmt.Sprintf("%s:%d", cfg.WebBindAddress, cfg.WebPort),
+		LocalAddr:       cfg.WebAddrPort().String(),
 		AuthKey:         cfg.TailscaleAuthKey,
 		EnableTailscale: cfg.TailscaleAuthKey != "",
 	}
@@ -123,7 +123,7 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 	s.kraweb.Handle("/metrics", promhttp.Handler())
 
 	logger.Info("web server created",
-		slog.Int("port", cfg.WebPort),
+		slog.String("addr", cfg.WebAddrPort().String()),
 	)
 
 	return s, nil
@@ -139,7 +139,7 @@ func (s *Server) Start() error {
 	// Start kraweb in background
 	go func() {
 		s.logger.Info("web interface",
-			slog.Int("port", s.cfg.WebPort),
+			slog.String("addr", s.cfg.WebAddrPort().String()),
 			slog.String("tailscale_hostname", s.cfg.TailscaleHostname),
 		)
 		if err := s.kraweb.ListenAndServe(s.ctx); err != nil {

@@ -9,6 +9,7 @@ A HomeKit-enabled server that bridges the Nefit Easy thermostat to Apple HomeKit
 - **Event-driven runtime**: Typed events and eventbus keep HomeKit, the web app, and the Nefit client in sync
 - **Long-lived connection**: Maintains a single authenticated XMPP connection to the boiler
 - **Metrics and health checks**: Prometheus metrics, SSE diagnostics, and JSON health summaries
+- **Lifecycle table**: `/debug/eventbus` shows Web/HomeKit/Nefit component state so outages are obvious without grepping logs.
 - **Hardened NixOS service**: Runs as an unprivileged user with strict systemd sandboxes
 
 ## Architecture
@@ -66,8 +67,8 @@ NEFITHK_NEFIT_SERIAL=your-serial
 NEFITHK_NEFIT_ACCESS_KEY=your-access-key
 NEFITHK_NEFIT_PASSWORD=your-password
 NEFITHK_HAP_PIN=00102003
-NEFITHK_HAP_PORT=12345
-NEFITHK_WEB_PORT=8080
+NEFITHK_HAP_ADDR=0.0.0.0:12345
+NEFITHK_WEB_ADDR=0.0.0.0:8080
 NEFITHK_LOG_LEVEL=info
 NEFITHK_LOG_FORMAT=json
 # Optional: enable tailscale/kra listener
@@ -76,6 +77,8 @@ NEFITHK_LOG_FORMAT=json
 EOF
 chmod 600 /etc/nefit-homekit/env
 ```
+
+`NEFITHK_HAP_ADDR` and `NEFITHK_WEB_ADDR` accept Go-style `addr:port` bindings (IPv4, IPv6 in `[::]:1234`, etc.). If omitted, the application composes them from `NEFITHK_*_BIND_ADDRESS` (default `0.0.0.0`) and `NEFITHK_*_PORT` (defaults `12345`/`8080`).
 
 Set `NEFITHK_HAP_STORAGE_PATH` when the default `/var/lib/nefit-homekit` is not suitable (for example on hosts with dedicated persistent storage).
 
@@ -170,6 +173,8 @@ services.nefit-homekit.environmentFile    # Path to file with NEFITHK_* values
 services.nefit-homekit.environment        # Attrset of extra NEFITHK_* overrides
 services.nefit-homekit.ports.hap          # HAP port (default 12345)
 services.nefit-homekit.ports.web          # Web port (default 8080)
+services.nefit-homekit.bindAddresses.hap  # IP address for HAP listener (default 0.0.0.0)
+services.nefit-homekit.bindAddresses.web  # IP address for web listener (default 0.0.0.0)
 services.nefit-homekit.hapPin             # HomeKit PIN (8 digits)
 services.nefit-homekit.storagePath        # Directory for HomeKit storage/state
 services.nefit-homekit.tailscale.hostname # Tailnet hostname when enabled

@@ -15,6 +15,19 @@ func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
+func newTestConfig(t *testing.T) *config.Config {
+	t.Helper()
+	cfg := &config.Config{
+		NefitSerial:    "TEST123",
+		NefitAccessKey: "ACCESS",
+		NefitPassword:  "PASSWORD",
+		HAPPin:         "12345678",
+		HAPStoragePath: t.TempDir(),
+	}
+	cfg.SetListenerAddrsForTesting("127.0.0.1:0", "127.0.0.1:0")
+	return cfg
+}
+
 func TestNew(t *testing.T) {
 	logger := testLogger()
 	bus, err := events.New(logger)
@@ -25,12 +38,7 @@ func TestNew(t *testing.T) {
 		_ = bus.Close()
 	}()
 
-	cfg := &config.Config{
-		NefitSerial:    "TEST123",
-		HAPPin:         "12345678",
-		HAPStoragePath: t.TempDir(),
-		HAPPort:        0, // Random port
-	}
+	cfg := newTestConfig(t)
 
 	server, err := New(cfg, logger, bus)
 	if err != nil {
@@ -78,12 +86,7 @@ func TestNewWithNilLogger(t *testing.T) {
 		_ = bus.Close()
 	}()
 
-	cfg := &config.Config{
-		NefitSerial:    "TEST123",
-		HAPPin:         "12345678",
-		HAPStoragePath: t.TempDir(),
-		HAPPort:        0,
-	}
+	cfg := newTestConfig(t)
 
 	_, err = New(cfg, nil, bus)
 	if err == nil {
@@ -93,12 +96,7 @@ func TestNewWithNilLogger(t *testing.T) {
 
 func TestNewWithNilBus(t *testing.T) {
 	logger := testLogger()
-	cfg := &config.Config{
-		NefitSerial:    "TEST123",
-		HAPPin:         "12345678",
-		HAPStoragePath: t.TempDir(),
-		HAPPort:        0,
-	}
+	cfg := newTestConfig(t)
 
 	_, err := New(cfg, logger, nil)
 	if err == nil {
@@ -116,12 +114,7 @@ func TestUpdateAccessory(t *testing.T) {
 		_ = bus.Close()
 	}()
 
-	cfg := &config.Config{
-		NefitSerial:    "TEST123",
-		HAPPin:         "12345678",
-		HAPStoragePath: t.TempDir(),
-		HAPPort:        0,
-	}
+	cfg := newTestConfig(t)
 
 	server, err := New(cfg, logger, bus)
 	if err != nil {
@@ -216,12 +209,7 @@ func TestUpdateAccessoryIgnoresNonNefitSource(t *testing.T) {
 		_ = bus.Close()
 	}()
 
-	cfg := &config.Config{
-		NefitSerial:    "TEST123",
-		HAPPin:         "12345678",
-		HAPStoragePath: t.TempDir(),
-		HAPPort:        0,
-	}
+	cfg := newTestConfig(t)
 
 	server, err := New(cfg, logger, bus)
 	if err != nil {
@@ -260,12 +248,7 @@ func TestStateUpdatePubSub(t *testing.T) {
 		_ = bus.Close()
 	}()
 
-	cfg := &config.Config{
-		NefitSerial:    "TEST123",
-		HAPPin:         "12345678",
-		HAPStoragePath: t.TempDir(),
-		HAPPort:        0,
-	}
+	cfg := newTestConfig(t)
 
 	server, err := New(cfg, logger, bus)
 	if err != nil {
@@ -322,12 +305,7 @@ func TestCommandPublish(t *testing.T) {
 		_ = bus.Close()
 	}()
 
-	cfg := &config.Config{
-		NefitSerial:    "TEST123",
-		HAPPin:         "12345678",
-		HAPStoragePath: t.TempDir(),
-		HAPPort:        0,
-	}
+	cfg := newTestConfig(t)
 
 	server, err := New(cfg, logger, bus)
 	if err != nil {
@@ -387,12 +365,7 @@ func TestClose(t *testing.T) {
 		_ = bus.Close()
 	}()
 
-	cfg := &config.Config{
-		NefitSerial:    "TEST123",
-		HAPPin:         "12345678",
-		HAPStoragePath: t.TempDir(),
-		HAPPort:        0,
-	}
+	cfg := newTestConfig(t)
 
 	server, err := New(cfg, logger, bus)
 	if err != nil {
