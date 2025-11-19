@@ -210,6 +210,11 @@ in
           wants = [ "network-online.target" ];
           wantedBy = [ "multi-user.target" ];
 
+          unitConfig = {
+            StartLimitIntervalSec = "5min";
+            StartLimitBurst = 5;
+          };
+
           environment = envVars;
 
           serviceConfig = {
@@ -221,8 +226,6 @@ in
             Restart = "on-failure";
             RestartSec = "10s";
             RestartPreventExitStatus = [ 1 ];
-            StartLimitIntervalSec = "5min";
-            StartLimitBurst = 5;
 
             TimeoutStartSec = "60s";
             TimeoutStopSec = "30s";

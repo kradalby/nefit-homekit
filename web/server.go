@@ -19,7 +19,6 @@ import (
 	"github.com/kradalby/kra/web"
 	"github.com/kradalby/nefit-homekit/config"
 	"github.com/kradalby/nefit-homekit/events"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"tailscale.com/util/eventbus"
 )
 
@@ -120,7 +119,6 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 	s.kraweb.Handle("/qrcode", http.HandlerFunc(s.handleQRCode))
 	s.kraweb.Handle("/debug/eventbus", http.HandlerFunc(s.handleEventBusDebug))
 	s.kraweb.Handle("/health", http.HandlerFunc(s.handleHealth))
-	s.kraweb.Handle("/metrics", promhttp.Handler())
 
 	logger.Info("web server created",
 		slog.String("addr", cfg.WebAddrPort().String()),
