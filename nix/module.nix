@@ -240,32 +240,6 @@ in
             StandardError = "journal";
             SyslogIdentifier = "nefit-homekit";
 
-            ProtectSystem = "strict";
-            ProtectHome = true;
-            PrivateTmp = true;
-            ReadWritePaths = [ cfg.storagePath ];
-            NoNewPrivileges = true;
-            PrivateDevices = true;
-            ProtectHostname = true;
-            ProtectClock = true;
-            ProtectKernelTunables = true;
-            ProtectKernelModules = true;
-            ProtectKernelLogs = true;
-            ProtectControlGroups = true;
-            RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" "AF_NETLINK" ];
-            RestrictNamespaces = true;
-            LockPersonality = true;
-            MemoryDenyWriteExecute = true;
-            RestrictRealtime = true;
-            RestrictSUIDSGID = true;
-            RemoveIPC = true;
-            SystemCallFilter = [
-              "@system-service"
-              "~@privileged"
-              "~@resources"
-            ];
-            SystemCallErrorNumber = "EPERM";
-            SystemCallArchitectures = "native";
             UMask = "0077";
           }
           // (optionalAttrs (cfg.environmentFile != null) {
