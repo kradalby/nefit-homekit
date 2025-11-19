@@ -590,24 +590,89 @@ func (s *Server) renderThermostatUI(state *events.StateUpdateEvent) string {
 				const eventSource = new EventSource('/events');
 				const tempSlider = document.getElementById('temp-slider');
 				const targetTempDisplay = document.getElementById('target-temp');
+				const heatModeButton = document.querySelector("button[name='mode'][value='heat']");
+				const offModeButton = document.querySelector("button[name='mode'][value='off']");
+
+				const readNumber = (obj, snake, camel) => {
+					if (typeof obj[snake] === 'number') {
+						return obj[snake];
+					}
+					if (typeof obj[camel] === 'number') {
+						return obj[camel];
+					}
+					return undefined;
+				};
+
+				const readBool = (obj, snake, camel) => {
+					if (typeof obj[snake] === 'boolean') {
+						return obj[snake];
+					}
+					if (typeof obj[camel] === 'boolean') {
+						return obj[camel];
+					}
+					return undefined;
+				};
+
+				const readString = (obj, snake, camel) => obj[snake] ?? obj[camel];
 
 				eventSource.onmessage = function(e) {
-					const data = JSON.parse(e.data);
-					document.getElementById('current-temp').textContent = data.CurrentTemperature.toFixed(1) + '°C';
+					let data;
+					try {
+						data = JSON.parse(e.data);
+					} catch (err) {
+						console.error('failed to parse SSE payload', err);
+						return;
+					}
 
-					const heatingStatus = document.getElementById('heating-status');
-					if (data.HeatingActive) {
-						heatingStatus.textContent = 'Heating';
-						heatingStatus.className = 'status-heating';
-					} else {
-						heatingStatus.textContent = 'Off';
-						heatingStatus.className = 'status-off';
+					const currentTemp = readNumber(data, 'current_temperature', 'CurrentTemperature');
+					if (typeof currentTemp === 'number') {
+						const currentTempEl = document.getElementById('current-temp');
+						if (currentTempEl) {
+							currentTempEl.textContent = currentTemp.toFixed(1) + '°C';
+						}
+					}
+
+					const targetTemp = readNumber(data, 'target_temperature', 'TargetTemperature');
+					if (typeof targetTemp === 'number') {
+						if (tempSlider) {
+							tempSlider.value = targetTemp.toFixed(1);
+						}
+						if (targetTempDisplay) {
+							targetTempDisplay.textContent = targetTemp.toFixed(1) + '°C';
+						}
+					}
+
+					const heatingActive = readBool(data, 'heating_active', 'HeatingActive');
+					if (typeof heatingActive === 'boolean') {
+						const heatingStatus = document.getElementById('heating-status');
+						if (heatingStatus) {
+							if (heatingActive) {
+								heatingStatus.textContent = 'Heating';
+								heatingStatus.className = 'status-heating';
+							} else {
+								heatingStatus.textContent = 'Off';
+								heatingStatus.className = 'status-off';
+							}
+						}
+					}
+
+					const mode = readString(data, 'mode', 'Mode');
+					if (mode && heatModeButton && offModeButton) {
+						if (mode === 'heat') {
+							heatModeButton.classList.add('active');
+							offModeButton.classList.remove('active');
+						} else if (mode === 'off') {
+							offModeButton.classList.add('active');
+							heatModeButton.classList.remove('active');
+						}
 					}
 				};
 
-				tempSlider.addEventListener('input', function(e) {
-					targetTempDisplay.textContent = e.target.value + '°C';
-				});
+				if (tempSlider && targetTempDisplay) {
+					tempSlider.addEventListener('input', function(e) {
+						targetTempDisplay.textContent = e.target.value + '°C';
+					});
+				}
 			`)),
 		),
 	).Render()
