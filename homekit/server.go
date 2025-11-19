@@ -20,8 +20,7 @@ const (
 	modeOff  = "off"
 	modeHeat = "heat"
 
-	// Temperature constants.
-	tempOff       = 0.0  // Temperature to set when "off" (special value)
+	// Temperature constant for default "on" temperature.
 	tempDefaultOn = 18.0 // Default temperature when turning "on" with no previous state
 )
 
@@ -188,42 +187,10 @@ func (s *Server) setupAccessoryCallbacks() {
 
 		switch state {
 		case 0: // Off
-			// Save current temperature before turning "off"
-			currentTemp := s.accessory.Thermostat.TargetTemperature.Value()
-			if err := savePreviousTemperature(s.cfg.HAPStoragePath, currentTemp); err != nil {
-				s.logger.Warn("failed to save previous temperature",
-					slog.Any("error", err),
-					slog.Float64("temperature", currentTemp),
-				)
-			} else {
-				s.logger.Info("saved previous temperature",
-					slog.Float64("temperature", currentTemp),
-				)
-			}
-
-			// Set to manual mode (heat) at low temperature
-			mode := modeHeat
-			temp := tempOff
-
-			s.logger.Info("turning off: setting to manual mode at low temperature",
-				slog.Float64("temperature", temp),
-			)
-
-			// Publish mode command
-			modeEvent := events.CommandEvent{
-				Source:      "homekit",
-				CommandType: events.CommandTypeSetMode,
-				Mode:        &mode,
-			}
-			s.bus.PublishCommand(s.client, modeEvent)
-
-			// Publish temperature command
-			tempEvent := events.CommandEvent{
-				Source:            "homekit",
-				CommandType:       events.CommandTypeSetTemperature,
-				TargetTemperature: &temp,
-			}
-			s.bus.PublishCommand(s.client, tempEvent)
+			// Nefit doesn't support true "off" - just ignore this command
+			// and keep the thermostat in its current state
+			s.logger.Info("off command received - ignoring (Nefit doesn't support off)")
+			return
 
 		case 1, 3: // Heat or Auto (Nefit only supports heat)
 			// Load previous temperature or use default

@@ -230,17 +230,12 @@ func (c *Client) publishStateUpdate(status types.Status, force bool) {
 	heatingActive := status.BoilerIndicator == "CH" || status.BoilerIndicator == "HW"
 
 	// Determine mode
-	// Special case: if target temperature is 0, treat as off
 	mode := modeHeat
-	if status.TempSetpoint == 0 {
+	switch status.UserMode {
+	case nefitModeClock:
 		mode = modeOff
-	} else {
-		switch status.UserMode {
-		case nefitModeClock:
-			mode = modeOff
-		case nefitModeManual:
-			mode = modeHeat
-		}
+	case nefitModeManual:
+		mode = modeHeat
 	}
 
 	event := events.StateUpdateEvent{
