@@ -98,11 +98,22 @@ func (b *Bus) Client(name ClientName) (*eventbus.Client, error) {
 // If the event is identical to the last published event (ignoring timestamp and source),
 // it will be skipped to reduce unnecessary updates.
 func (b *Bus) PublishStateUpdate(client *eventbus.Client, event StateUpdateEvent) {
+	b.publishStateUpdate(client, event, false)
+}
+
+// PublishStateUpdateForce publishes the event regardless of whether it matches the last state.
+// Use this to ensure downstream subscribers receive an update even when the state payload
+// hasn't changed (e.g., to roll back optimistic UI updates after a failed command).
+func (b *Bus) PublishStateUpdateForce(client *eventbus.Client, event StateUpdateEvent) {
+	b.publishStateUpdate(client, event, true)
+}
+
+func (b *Bus) publishStateUpdate(client *eventbus.Client, event StateUpdateEvent, force bool) {
 	b.stateMu.Lock()
 	defer b.stateMu.Unlock()
 
 	// Check if this event is a duplicate of the last published state
-	if b.lastState != nil && event.Equals(*b.lastState) {
+	if !force && b.lastState != nil && event.Equals(*b.lastState) {
 		b.logger.Debug("skipping duplicate state update event",
 			slog.String("source", event.Source),
 			slog.Float64("current_temp", event.CurrentTemperature),

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	nefitclient "github.com/kradalby/nefit-go/client"
@@ -15,7 +16,10 @@ import (
 )
 
 const (
-	modeOff = "off"
+	modeOff         = "off"
+	modeHeat        = "heat"
+	nefitModeManual = "manual"
+	nefitModeClock  = "clock"
 )
 
 // Client manages the persistent connection to the Nefit Easy thermostat.
@@ -28,6 +32,8 @@ type Client struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	reconnectNum int
+	stateMu      sync.RWMutex
+	lastEvent    *events.StateUpdateEvent
 }
 
 // New creates a new Nefit client.
@@ -164,7 +170,7 @@ func (c *Client) pollStatus() {
 	for {
 		select {
 		case <-ticker.C:
-			if err := c.fetchAndPublishStatus(); err != nil {
+			if err := c.fetchAndPublishStatus(false); err != nil {
 				c.logger.Warn("failed to fetch status", slog.Any("error", err))
 			}
 		case <-c.ctx.Done():
@@ -175,7 +181,7 @@ func (c *Client) pollStatus() {
 }
 
 // fetchAndPublishStatus retrieves current status and publishes it to eventbus.
-func (c *Client) fetchAndPublishStatus() error {
+func (c *Client) fetchAndPublishStatus(force bool) error {
 	ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
 	defer cancel()
 
@@ -187,7 +193,7 @@ func (c *Client) fetchAndPublishStatus() error {
 		return fmt.Errorf("status response was nil")
 	}
 
-	c.publishStateUpdate(*status)
+	c.publishStateUpdate(*status, force)
 	return nil
 }
 
@@ -213,20 +219,23 @@ func (c *Client) handleNefitEvent(uri string, data interface{}) {
 			if mode, ok := raw["user_mode"].(string); ok {
 				status.UserMode = mode
 			}
-			c.publishStateUpdate(status)
+			c.publishStateUpdate(status, false)
 		}
 	}
 }
 
 // publishStateUpdate converts Nefit status to our event format and publishes it.
-func (c *Client) publishStateUpdate(status types.Status) {
+func (c *Client) publishStateUpdate(status types.Status, force bool) {
 	// Determine if heating is active
 	heatingActive := status.BoilerIndicator == "CH" || status.BoilerIndicator == "HW"
 
 	// Determine mode
-	mode := "heat"
-	if status.UserMode == modeOff {
+	mode := modeHeat
+	switch status.UserMode {
+	case nefitModeClock:
 		mode = modeOff
+	case nefitModeManual:
+		mode = modeHeat
 	}
 
 	event := events.StateUpdateEvent{
@@ -244,7 +253,16 @@ func (c *Client) publishStateUpdate(status types.Status) {
 		slog.Bool("heating", event.HeatingActive),
 	)
 
-	c.bus.PublishStateUpdate(c.client, event)
+	if force {
+		c.bus.PublishStateUpdateForce(c.client, event)
+	} else {
+		c.bus.PublishStateUpdate(c.client, event)
+	}
+
+	eventCopy := event
+	c.stateMu.Lock()
+	c.lastEvent = &eventCopy
+	c.stateMu.Unlock()
 }
 
 // handleCommands subscribes to command events and executes them on the Nefit backend.
@@ -274,6 +292,10 @@ func (c *Client) handleCommands() {
 func (c *Client) handleCommand(cmd events.CommandEvent) {
 	ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
 	defer cancel()
+	success := false
+	defer func() {
+		c.syncState(!success)
+	}()
 
 	switch cmd.CommandType {
 	case events.CommandTypeSetTemperature:
@@ -286,18 +308,12 @@ func (c *Client) handleCommand(cmd events.CommandEvent) {
 			slog.Float64("temperature", *cmd.TargetTemperature),
 		)
 
-		payload := map[string]float64{
-			"value": *cmd.TargetTemperature,
-		}
-		if err := c.nefitClient.Put(ctx, types.URIManualSetpoint, payload); err != nil {
+		if err := c.nefitClient.SetTemperature(ctx, *cmd.TargetTemperature); err != nil {
 			c.logger.Error("failed to set temperature", slog.Any("error", err))
 			return
 		}
 
-		// Fetch updated status to confirm change
-		if err := c.fetchAndPublishStatus(); err != nil {
-			c.logger.Warn("failed to fetch status after temperature change", slog.Any("error", err))
-		}
+		success = true
 
 	case events.CommandTypeSetMode:
 		if cmd.Mode == nil {
@@ -309,21 +325,12 @@ func (c *Client) handleCommand(cmd events.CommandEvent) {
 			slog.String("mode", *cmd.Mode),
 		)
 
-		// Map our mode to Nefit mode
-		nefitMode := "manual"
-		if *cmd.Mode == modeOff {
-			nefitMode = modeOff
-		}
-
-		if err := c.nefitClient.Put(ctx, types.URIUserMode, nefitMode); err != nil {
+		if err := c.setUserMode(ctx, *cmd.Mode); err != nil {
 			c.logger.Error("failed to set mode", slog.Any("error", err))
 			return
 		}
 
-		// Fetch updated status to confirm change
-		if err := c.fetchAndPublishStatus(); err != nil {
-			c.logger.Warn("failed to fetch status after mode change", slog.Any("error", err))
-		}
+		success = true
 
 	case events.CommandTypeSetHotWater:
 		if cmd.HotWaterEnabled == nil {
@@ -335,20 +342,68 @@ func (c *Client) handleCommand(cmd events.CommandEvent) {
 			slog.Bool("enabled", *cmd.HotWaterEnabled),
 		)
 
-		mode := modeOff
-		if *cmd.HotWaterEnabled {
-			mode = "on"
-		}
-
-		if err := c.nefitClient.Put(ctx, types.URIHotWaterManualMode, mode); err != nil {
+		if err := c.nefitClient.SetHotWaterSupply(ctx, *cmd.HotWaterEnabled); err != nil {
 			c.logger.Error("failed to set hot water", slog.Any("error", err))
 			return
 		}
+
+		success = true
 
 	default:
 		c.logger.Warn("unknown command type",
 			slog.String("type", string(cmd.CommandType)),
 		)
+		success = true
+	}
+}
+
+// syncState fetches the latest status and publishes it so every component sees the same view.
+func (c *Client) syncState(force bool) {
+	if c.ctx.Err() != nil {
+		return
+	}
+
+	if err := c.fetchAndPublishStatus(force); err != nil {
+		c.logger.Warn("failed to sync state", slog.Any("error", err), slog.Bool("force", force))
+		if force {
+			c.republishLastState()
+		}
+	}
+}
+
+func (c *Client) republishLastState() {
+	c.stateMu.RLock()
+	last := c.lastEvent
+	c.stateMu.RUnlock()
+
+	if last == nil {
+		return
+	}
+
+	c.logger.Debug("republishing last known state after sync failure",
+		slog.Float64("current_temp", last.CurrentTemperature),
+		slog.Float64("target_temp", last.TargetTemperature),
+	)
+
+	c.bus.PublishStateUpdateForce(c.client, *last)
+}
+
+// setUserMode maps our simplified modes to the nefit-go helpers.
+// "heat" maps to manual mode, "off" maps to clock/schedule mode.
+func (c *Client) setUserMode(ctx context.Context, mode string) error {
+	switch mode {
+	case modeOff:
+		if err := c.nefitClient.SetUserMode(ctx, nefitModeClock); err != nil {
+			return fmt.Errorf("failed to set scheduled mode: %w", err)
+		}
+		return nil
+	case modeHeat:
+		if err := c.nefitClient.SetUserMode(ctx, nefitModeManual); err != nil {
+			return fmt.Errorf("failed to set manual mode: %w", err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported mode %q", mode)
 	}
 }
 

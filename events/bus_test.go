@@ -340,3 +340,45 @@ func TestPublishStateUpdateDeduplication(t *testing.T) {
 		t.Fatal("timeout waiting for changed event")
 	}
 }
+
+func TestPublishStateUpdateForce(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	bus, err := New(logger)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = bus.Close() }()
+
+	client, err := bus.Client(ClientNefit)
+	if err != nil {
+		t.Fatalf("Client() error = %v", err)
+	}
+
+	sub := eventbus.Subscribe[StateUpdateEvent](client)
+	defer sub.Close()
+
+	event := StateUpdateEvent{
+		Timestamp:          time.Now(),
+		Source:             "nefit",
+		CurrentTemperature: 20,
+		TargetTemperature:  21,
+		Mode:               "heat",
+	}
+	bus.PublishStateUpdate(client, event)
+
+	select {
+	case <-sub.Events():
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timeout waiting for first event")
+	}
+
+	// Force publishing duplicate event
+	bus.PublishStateUpdateForce(client, event)
+
+	select {
+	case <-sub.Events():
+		// ok: forced event delivered
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("forced publish should deliver duplicate event")
+	}
+}

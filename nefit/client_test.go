@@ -72,10 +72,10 @@ func TestPublishStateUpdate(t *testing.T) {
 		InHouseTemp:     21.5,
 		TempSetpoint:    22.0,
 		BoilerIndicator: "CH",
-		UserMode:        "manual",
+		UserMode:        nefitModeManual,
 	}
 
-	client.publishStateUpdate(status)
+	client.publishStateUpdate(status, false)
 
 	select {
 	case evt := <-sub.Events():
@@ -109,7 +109,7 @@ func TestHandleNefitEventPublishesStatus(t *testing.T) {
 		"in_house_temp":    19.0,
 		"temp_setpoint":    17.5,
 		"boiler_indicator": "off",
-		"user_mode":        "off",
+		"user_mode":        nefitModeClock,
 	}
 
 	client.handleNefitEvent(types.URIStatus, payload)
