@@ -286,7 +286,10 @@ func (c *Client) handleCommand(cmd events.CommandEvent) {
 			slog.Float64("temperature", *cmd.TargetTemperature),
 		)
 
-		if err := c.nefitClient.Put(ctx, types.URIManualSetpoint, *cmd.TargetTemperature); err != nil {
+		payload := map[string]float64{
+			"value": *cmd.TargetTemperature,
+		}
+		if err := c.nefitClient.Put(ctx, types.URIManualSetpoint, payload); err != nil {
 			c.logger.Error("failed to set temperature", slog.Any("error", err))
 			return
 		}
