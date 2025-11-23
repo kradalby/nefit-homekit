@@ -41,9 +41,9 @@ All goroutines register with the eventbus and shut down via context cancellation
 
 - Required: `NEFITHK_NEFIT_SERIAL`, `NEFITHK_NEFIT_ACCESS_KEY`, `NEFITHK_NEFIT_PASSWORD`.
 - Networking: Prefer `NEFITHK_HAP_ADDR` and `NEFITHK_WEB_ADDR` (Go-style `addr:port`). When omitted, the service composes them from `NEFITHK_*_BIND_ADDRESS` (defaults `0.0.0.0`) and `NEFITHK_*_PORT` (defaults `12345`/`8080`).
-- HomeKit: `NEFITHK_HAP_PIN`, `NEFITHK_HAP_STORAGE_PATH` (maps to `services.nefit-homekit.storagePath`).
+- HomeKit: `NEFITHK_HAP_PIN`, `NEFITHK_HAP_STORAGE_PATH` (the module sets this to `services.nefit-homekit.dataDir + "/hap"`).
 - Logging: `NEFITHK_LOG_LEVEL`, `NEFITHK_LOG_FORMAT` (json/console).
-- Tailscale: `NEFITHK_TAILSCALE_HOSTNAME`, `NEFITHK_TAILSCALE_AUTHKEY`. The module pulls the auth key from `tailscale.authKeyFile` and injects it via credentials.
+- Tailscale: `NEFITHK_TAILSCALE_HOSTNAME`, `NEFITHK_TAILSCALE_AUTHKEY`, `NEFITHK_TAILSCALE_STATE_DIR`. The module pulls the auth key from `tailscale.authKeyFile`, injects it via credentials, and points the state dir at `services.nefit-homekit.dataDir + "/tailscale"`.
 
 Store these variables in `/etc/nefit-homekit/env` (or an agenix secret) and point `services.nefit-homekit.environmentFile` at it. Avoid ad-hoc `Environment` overrides unless you are intentionally pinning non-secret values.
 
@@ -52,12 +52,13 @@ Store these variables in `/etc/nefit-homekit/env` (or an agenix secret) and poin
 `nixosModules.default` exposes the following options (all documented in the README):
 
 - `services.nefit-homekit.enable`, `.package`, `.environmentFile`, `.environment`.
-- `services.nefit-homekit.ports.{hap,web}`, `.hapPin`, `.storagePath`.
+- `services.nefit-homekit.ports.{hap,web}`, `.hapPin`, `.dataDir`.
 - `services.nefit-homekit.tailscale.{hostname,authKeyFile}`.
 - `services.nefit-homekit.log.{level,format}`.
 - `services.nefit-homekit.openFirewall`, `.user`, `.group`.
 
 The module provisions users, state/cache/runtime directories, strict systemd hardening, optional firewall rules, and loads the env file + tailscale credential.
+`services.nefit-homekit.dataDir` is the single source of truth for persistent storage; the module binds HomeKit storage to `dataDir/hap` and exports `NEFITHK_TAILSCALE_STATE_DIR=dataDir/tailscale` so tsnet/tailscale artifacts never escape that tree.
 
 ## Web + Tailscale model
 

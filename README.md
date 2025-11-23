@@ -74,13 +74,14 @@ NEFITHK_LOG_FORMAT=json
 # Optional: enable tailscale/kra listener
 # NEFITHK_TAILSCALE_AUTHKEY=tskey-abc
 # NEFITHK_TAILSCALE_HOSTNAME=nefit-homekit
+# NEFITHK_TAILSCALE_STATE_DIR=/var/lib/nefit-homekit/tailscale
 EOF
 chmod 600 /etc/nefit-homekit/env
 ```
 
 `NEFITHK_HAP_ADDR` and `NEFITHK_WEB_ADDR` accept Go-style `addr:port` bindings (IPv4, IPv6 in `[::]:1234`, etc.). If omitted, the application composes them from `NEFITHK_*_BIND_ADDRESS` (default `0.0.0.0`) and `NEFITHK_*_PORT` (defaults `12345`/`8080`).
 
-Set `NEFITHK_HAP_STORAGE_PATH` when the default `/var/lib/nefit-homekit` is not suitable (for example on hosts with dedicated persistent storage).
+Set `NEFITHK_HAP_STORAGE_PATH` when the default `dataDir/hap` is not suitable (for example on hosts with dedicated persistent storage). The NixOS module maps `services.nefit-homekit.dataDir` to both this HomeKit directory (`dataDir/hap`) and the Tailscale state directory (`dataDir/tailscale`, wired via `NEFITHK_TAILSCALE_STATE_DIR`).
 
 See [NEFIT_IMPLEMENTATION.md](NEFIT_IMPLEMENTATION.md) for a detailed description of each option and the default values.
 
@@ -96,7 +97,7 @@ The kra-powered web server listens on `NEFITHK_WEB_BIND_ADDRESS:NEFITHK_WEB_PORT
 - `/qrcode` – Plain-text QR + PIN for headless pairing.
 - `/debug/eventbus` – Diagnostic page for eventbus traffic.
 
-Provide `NEFITHK_TAILSCALE_AUTHKEY` and `NEFITHK_TAILSCALE_HOSTNAME` to expose the same endpoints over Tailscale; kra now reads the auth key directly (no temp files required).
+Provide `NEFITHK_TAILSCALE_AUTHKEY`, `NEFITHK_TAILSCALE_HOSTNAME`, and (optionally) `NEFITHK_TAILSCALE_STATE_DIR` to expose the same endpoints over Tailscale; kra now reads the auth key directly (no temp files required). When unset, tailscale state falls back to the default OS config directory; on NixOS the module automatically points it at `services.nefit-homekit.dataDir + /tailscale`.
 
 ## NixOS Deployment
 
@@ -140,7 +141,7 @@ Example host configuration:
     enable = true;
     package = pkgs.nefit-homekit;
     environmentFile = "/etc/nefit-homekit/env";
-    storagePath = "/var/lib/nefit-homekit";
+    dataDir = "/var/lib/nefit-homekit";
 
     ports = {
       hap = 51826;
@@ -176,7 +177,7 @@ services.nefit-homekit.ports.web          # Web port (default 8080)
 services.nefit-homekit.bindAddresses.hap  # IP address for HAP listener (default 0.0.0.0)
 services.nefit-homekit.bindAddresses.web  # IP address for web listener (default 0.0.0.0)
 services.nefit-homekit.hapPin             # HomeKit PIN (8 digits)
-services.nefit-homekit.storagePath        # Directory for HomeKit storage/state
+services.nefit-homekit.dataDir            # Root directory for HomeKit + Tailscale state (hap/tailscale subdirs)
 services.nefit-homekit.tailscale.hostname # Tailnet hostname when enabled
 services.nefit-homekit.tailscale.authKeyFile # Credential used for Tailscale auth
 services.nefit-homekit.log.level          # slog level (debug/info/warn/error)

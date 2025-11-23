@@ -63,6 +63,17 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	if cfg.TailscaleStateDir != "" {
+		if err := os.MkdirAll(cfg.TailscaleStateDir, 0o700); err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to create tailscale state dir: %w", err)
+		}
+		if err := os.Setenv("XDG_CONFIG_HOME", cfg.TailscaleStateDir); err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to set tailscale state dir: %w", err)
+		}
+	}
+
 	// Get eventbus client
 	client, err := bus.Client(events.ClientWeb)
 	if err != nil {

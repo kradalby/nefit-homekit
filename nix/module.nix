@@ -4,6 +4,11 @@ with lib;
 
 let
   cfg = config.services.nefit-homekit;
+  dataDirStr = toString cfg.dataDir;
+  hapDir = "${cfg.dataDir}/hap";
+  tailscaleDir = "${cfg.dataDir}/tailscale";
+  dataDirUnderVarLib = lib.hasPrefix "/var/lib/" dataDirStr;
+  dataDirName = builtins.baseNameOf dataDirStr;
 in
 {
   options.services.nefit-homekit = {
@@ -128,10 +133,14 @@ in
       '';
     };
 
-    storagePath = mkOption {
+    dataDir = mkOption {
       type = types.path;
       default = "/var/lib/nefit-homekit";
-      description = "Directory for storing HAP pairing data and state.";
+      description = ''
+        Root data directory for persistent service state. The module stores
+        HomeKit data under `dataDir/hap` and Tailscale state under
+        `dataDir/tailscale`.
+      '';
     };
 
     log = {
@@ -170,7 +179,7 @@ in
         isSystemUser = true;
         group = cfg.group;
         description = "Nefit HomeKit service user";
-        home = "/var/lib/nefit-homekit";
+        home = cfg.dataDir;
         createHome = true;
       };
 
@@ -185,10 +194,11 @@ in
             NEFITHK_HAP_PORT = toString cfg.ports.hap;
             NEFITHK_WEB_PORT = toString cfg.ports.web;
             NEFITHK_HAP_PIN = cfg.hapPin;
-            NEFITHK_HAP_STORAGE_PATH = cfg.storagePath;
+            NEFITHK_HAP_STORAGE_PATH = hapDir;
             NEFITHK_LOG_LEVEL = cfg.log.level;
             NEFITHK_LOG_FORMAT = cfg.log.format;
             NEFITHK_TAILSCALE_HOSTNAME = cfg.tailscale.hostname;
+            NEFITHK_TAILSCALE_STATE_DIR = tailscaleDir;
           } // cfg.environment;
 
           tailscaleExport =
@@ -217,41 +227,46 @@ in
 
           environment = envVars;
 
-          serviceConfig = {
-            Type = "simple";
-            ExecStart = startScript;
-            User = cfg.user;
-            Group = cfg.group;
+          serviceConfig =
+            {
+              Type = "simple";
+              ExecStart = startScript;
+              User = cfg.user;
+              Group = cfg.group;
 
-            Restart = "on-failure";
-            RestartSec = "10s";
-            RestartPreventExitStatus = [ 1 ];
+              Restart = "on-failure";
+              RestartSec = "10s";
+              RestartPreventExitStatus = [ 1 ];
 
-            TimeoutStartSec = "60s";
-            TimeoutStopSec = "30s";
+              TimeoutStartSec = "60s";
+              TimeoutStopSec = "30s";
 
-            WorkingDirectory = cfg.storagePath;
-            StateDirectory = "nefit-homekit";
-            StateDirectoryMode = "0700";
-            CacheDirectory = "nefit-homekit";
-            RuntimeDirectory = "nefit-homekit";
+              WorkingDirectory = cfg.dataDir;
+              CacheDirectory = "nefit-homekit";
+              RuntimeDirectory = "nefit-homekit";
 
-            StandardOutput = "journal";
-            StandardError = "journal";
-            SyslogIdentifier = "nefit-homekit";
+              StandardOutput = "journal";
+              StandardError = "journal";
+              SyslogIdentifier = "nefit-homekit";
 
-            UMask = "0077";
-          }
-          // (optionalAttrs (cfg.environmentFile != null) {
-            EnvironmentFile = cfg.environmentFile;
-          })
-          // (optionalAttrs (cfg.tailscale.authKeyFile != null) {
-            LoadCredential = "tailscale-authkey:${cfg.tailscale.authKeyFile}";
-          });
+              UMask = "0077";
+            }
+            // (optionalAttrs dataDirUnderVarLib {
+              StateDirectory = dataDirName;
+              StateDirectoryMode = "0700";
+            })
+            // (optionalAttrs (cfg.environmentFile != null) {
+              EnvironmentFile = cfg.environmentFile;
+            })
+            // (optionalAttrs (cfg.tailscale.authKeyFile != null) {
+              LoadCredential = "tailscale-authkey:${cfg.tailscale.authKeyFile}";
+            });
         };
 
       systemd.tmpfiles.rules = [
-        "d ${cfg.storagePath} 0700 ${cfg.user} ${cfg.group} - -"
+        "d ${cfg.dataDir} 0700 ${cfg.user} ${cfg.group} - -"
+        "d ${hapDir} 0700 ${cfg.user} ${cfg.group} - -"
+        "d ${tailscaleDir} 0700 ${cfg.user} ${cfg.group} - -"
       ];
     }
 

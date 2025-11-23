@@ -34,6 +34,7 @@ type Config struct {
 	// Tailscale Configuration
 	TailscaleAuthKey  string `env:"NEFITHK_TAILSCALE_AUTHKEY"`
 	TailscaleHostname string `env:"NEFITHK_TAILSCALE_HOSTNAME,default=nefit-homekit"`
+	TailscaleStateDir string `env:"NEFITHK_TAILSCALE_STATE_DIR"`
 
 	// Web Server Configuration
 	WebAddr        string `env:"NEFITHK_WEB_ADDR"`
