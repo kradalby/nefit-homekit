@@ -7,9 +7,8 @@ require (
 	github.com/brutella/hap v0.0.35
 	github.com/chasefleming/elem-go v0.31.0
 	github.com/kradalby/homekit-qr v0.0.0-20251117145710-0ea350a04eaa
-	github.com/kradalby/kra v0.0.0-20251118061446-1bdf827f4a64
+	github.com/kradalby/kra v0.0.0-20251123203901-fcb00e81f17f
 	github.com/kradalby/nefit-go v0.0.0-20251117144102-68bdd02ae05f
-	github.com/prometheus/client_golang v1.23.2
 	tailscale.com v1.90.6
 )
 
@@ -42,6 +41,7 @@ require (
 	github.com/mitchellh/go-ps v1.0.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/prometheus-community/pro-bing v0.7.0 // indirect
+	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.67.2 // indirect
 	github.com/prometheus/procfs v0.19.2 // indirect
