@@ -20,6 +20,8 @@ const (
 	modeHeat        = "heat"
 	nefitModeManual = "manual"
 	nefitModeClock  = "clock"
+
+	commandDebounceInterval = 500 * time.Millisecond
 )
 
 // Client manages the persistent connection to the Nefit Easy thermostat.
@@ -272,17 +274,72 @@ func (c *Client) handleCommands() {
 
 	c.logger.Info("subscribed to command events")
 
+	var (
+		pendingCommand *events.CommandEvent
+		timer          *time.Timer
+		timerC         <-chan time.Time
+	)
+
+	resetTimer := func() {
+		if timer == nil {
+			timer = time.NewTimer(commandDebounceInterval)
+			timerC = timer.C
+			return
+		}
+
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(commandDebounceInterval)
+	}
+
+	stopTimer := func() {
+		if timer == nil {
+			return
+		}
+
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer = nil
+		timerC = nil
+	}
+
 	for {
 		select {
-		case event := <-sub.Events():
+		case event, ok := <-sub.Events():
+			if !ok {
+				c.logger.Info("command subscription closed")
+				stopTimer()
+				return
+			}
 			// Only process commands from homekit and web (not from ourselves)
 			if event.Source == "nefit" {
 				continue
 			}
 
-			c.handleCommand(event)
+			eventCopy := event
+			pendingCommand = &eventCopy
+			resetTimer()
+		case <-timerC:
+			timer = nil
+			timerC = nil
+
+			if pendingCommand == nil {
+				continue
+			}
+
+			c.handleCommand(*pendingCommand)
+			pendingCommand = nil
 		case <-c.ctx.Done():
 			c.logger.Info("stopping command handler")
+			stopTimer()
 			return
 		}
 	}
