@@ -56,10 +56,11 @@ in
       };
 
       hostname = mkOption {
-        type = types.str;
-        default = "nefit-homekit";
+        type = types.nullOr types.str;
+        default = null;
         description = ''
           Hostname to use on the Tailscale network.
+          When unset, falls back to services.nefit-homekit.bridgeName.
           Only used when authKeyFile is set.
         '';
       };
@@ -82,6 +83,16 @@ in
           NEFITHK_LOG_LEVEL = "debug";
         }
       '';
+    };
+
+    bridgeName = mkOption {
+      type = types.str;
+      default = "tasmota-homekit";
+      description = ''
+        Base name for the HomeKit bridge; also used as the default
+        Tailscale hostname when tailscale.hostname is unset.
+      '';
+      example = "tasmota-homekit-dev";
     };
 
     user = mkOption {
@@ -188,6 +199,9 @@ in
       # Systemd service
       systemd.services.nefit-homekit =
         let
+          tailscaleHostname =
+            if cfg.tailscale.hostname != null then cfg.tailscale.hostname else cfg.bridgeName;
+
           envVars = {
             NEFITHK_HAP_ADDR = "${cfg.bindAddresses.hap}:${toString cfg.ports.hap}";
             NEFITHK_WEB_ADDR = "${cfg.bindAddresses.web}:${toString cfg.ports.web}";
@@ -197,7 +211,8 @@ in
             NEFITHK_HAP_STORAGE_PATH = hapDir;
             NEFITHK_LOG_LEVEL = cfg.log.level;
             NEFITHK_LOG_FORMAT = cfg.log.format;
-            NEFITHK_TAILSCALE_HOSTNAME = cfg.tailscale.hostname;
+            NEFITHK_BRIDGE_NAME = cfg.bridgeName;
+            NEFITHK_TAILSCALE_HOSTNAME = tailscaleHostname;
             NEFITHK_TAILSCALE_STATE_DIR = tailscaleDir;
           } // cfg.environment;
 

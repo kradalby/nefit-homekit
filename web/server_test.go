@@ -25,6 +25,7 @@ func testLogger() *slog.Logger {
 func newTestConfig(t *testing.T) *config.Config {
 	t.Helper()
 	cfg := &config.Config{
+		BridgeName:     "Test Bridge",
 		NefitSerial:    "TEST123",
 		NefitAccessKey: "ACCESS",
 		NefitPassword:  "PASSWORD",

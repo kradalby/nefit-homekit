@@ -68,7 +68,7 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 
 	// Create thermostat accessory
 	info := accessory.Info{
-		Name:         "Nefit Easy",
+		Name:         cfg.BridgeName,
 		Manufacturer: "Bosch",
 		Model:        "Nefit Easy",
 		SerialNumber: cfg.NefitSerial,
@@ -101,6 +101,7 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 		slog.String("serial", info.SerialNumber),
 		slog.String("pin", cfg.HAPPin),
 		slog.String("addr", cfg.HAPAddrPort().String()),
+		slog.String("bridge_name", cfg.BridgeName),
 	)
 
 	return s, nil

@@ -139,6 +139,7 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 
 	logger.Info("web server created",
 		slog.String("addr", cfg.WebAddrPort().String()),
+		slog.String("bridge_name", cfg.BridgeName),
 	)
 
 	return s, nil
@@ -524,7 +525,7 @@ func (s *Server) renderThermostatUI(state *events.StateUpdateEvent) string {
 	}
 
 	containerChildren := []elem.Node{
-		elem.H1(nil, elem.Text("Nefit Easy Thermostat")),
+		elem.H1(nil, elem.Text(s.thermostatTitle())),
 	}
 
 	if banner := s.renderHomekitBanner(); banner != nil {
@@ -604,7 +605,7 @@ func (s *Server) renderThermostatUI(state *events.StateUpdateEvent) string {
 
 	return elem.Html(nil,
 		elem.Head(nil,
-			elem.Title(nil, elem.Text("Nefit Easy Thermostat")),
+			elem.Title(nil, elem.Text(s.thermostatTitle())),
 			elem.Meta(attrs.Props{attrs.Charset: "utf-8"}),
 			elem.Meta(attrs.Props{attrs.Name: "viewport", attrs.Content: "width=device-width, initial-scale=1"}),
 			elem.Script(attrs.Props{attrs.Src: "https://unpkg.com/htmx.org@1.9.10"}),
@@ -655,7 +656,7 @@ func (s *Server) renderHomekitBanner() elem.Node {
 
 	qrContent = append(qrContent,
 		elem.P(attrs.Props{attrs.Class: "homekit-instructions"},
-			elem.Text("Home app → Add Accessory → More Options → Select \"Nefit Easy\"."),
+			elem.Text(fmt.Sprintf("Home app → Add Accessory → More Options → Select \"%s\".", s.accessoryDisplayName())),
 		),
 		elem.A(attrs.Props{attrs.Href: "/qrcode", attrs.Class: "homekit-link"}, elem.Text("Open standalone QR view")),
 	)
@@ -926,4 +927,19 @@ func (s *Server) getCSS() string {
 			text-decoration: underline;
 		}
 	`
+}
+
+func (s *Server) accessoryDisplayName() string {
+	if s.cfg.BridgeName != "" {
+		return s.cfg.BridgeName
+	}
+	return "Nefit Easy"
+}
+
+func (s *Server) thermostatTitle() string {
+	name := s.accessoryDisplayName()
+	if name == "" {
+		return "Thermostat"
+	}
+	return fmt.Sprintf("%s Thermostat", name)
 }

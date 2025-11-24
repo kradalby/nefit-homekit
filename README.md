@@ -63,6 +63,7 @@ All runtime configuration uses `NEFITHK_` environment variables. Create an envir
 
 ```bash
 cat >/etc/nefit-homekit/env <<'EOF'
+NEFITHK_BRIDGE_NAME=tasmota-homekit
 NEFITHK_NEFIT_SERIAL=your-serial
 NEFITHK_NEFIT_ACCESS_KEY=your-access-key
 NEFITHK_NEFIT_PASSWORD=your-password
@@ -73,13 +74,15 @@ NEFITHK_LOG_LEVEL=info
 NEFITHK_LOG_FORMAT=json
 # Optional: enable tailscale/kra listener
 # NEFITHK_TAILSCALE_AUTHKEY=tskey-abc
-# NEFITHK_TAILSCALE_HOSTNAME=nefit-homekit
+# NEFITHK_TAILSCALE_HOSTNAME=tasmota-homekit
 # NEFITHK_TAILSCALE_STATE_DIR=/var/lib/nefit-homekit/tailscale
 EOF
 chmod 600 /etc/nefit-homekit/env
 ```
 
 `NEFITHK_HAP_ADDR` and `NEFITHK_WEB_ADDR` accept Go-style `addr:port` bindings (IPv4, IPv6 in `[::]:1234`, etc.). If omitted, the application composes them from `NEFITHK_*_BIND_ADDRESS` (default `0.0.0.0`) and `NEFITHK_*_PORT` (defaults `12345`/`8080`).
+
+`NEFITHK_BRIDGE_NAME` controls the HomeKit bridge label as well as the default Tailscale hostname; override `NEFITHK_TAILSCALE_HOSTNAME` only when the tailnet name should diverge. See `.env.example` for a ready-to-copy template that uses `-dev` suffixed names to keep development instances isolated.
 
 Set `NEFITHK_HAP_STORAGE_PATH` when the default `dataDir/hap` is not suitable (for example on hosts with dedicated persistent storage). The NixOS module maps `services.nefit-homekit.dataDir` to both this HomeKit directory (`dataDir/hap`) and the Tailscale state directory (`dataDir/tailscale`, wired via `NEFITHK_TAILSCALE_STATE_DIR`).
 
@@ -172,13 +175,14 @@ services.nefit-homekit.enable             # Enable the service
 services.nefit-homekit.package            # Package derivation (defaults to pkgs.nefit-homekit)
 services.nefit-homekit.environmentFile    # Path to file with NEFITHK_* values
 services.nefit-homekit.environment        # Attrset of extra NEFITHK_* overrides
+services.nefit-homekit.bridgeName         # Base name for the HomeKit bridge / default tailnet hostname
 services.nefit-homekit.ports.hap          # HAP port (default 12345)
 services.nefit-homekit.ports.web          # Web port (default 8080)
 services.nefit-homekit.bindAddresses.hap  # IP address for HAP listener (default 0.0.0.0)
 services.nefit-homekit.bindAddresses.web  # IP address for web listener (default 0.0.0.0)
 services.nefit-homekit.hapPin             # HomeKit PIN (8 digits)
 services.nefit-homekit.dataDir            # Root directory for HomeKit + Tailscale state (hap/tailscale subdirs)
-services.nefit-homekit.tailscale.hostname # Tailnet hostname when enabled
+services.nefit-homekit.tailscale.hostname # Tailnet hostname (defaults to bridgeName)
 services.nefit-homekit.tailscale.authKeyFile # Credential used for Tailscale auth
 services.nefit-homekit.log.level          # slog level (debug/info/warn/error)
 services.nefit-homekit.log.format         # slog format (json/console)

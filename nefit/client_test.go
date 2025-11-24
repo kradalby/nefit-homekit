@@ -32,6 +32,7 @@ func newTestClient(t *testing.T) (*Client, *events.Bus, func()) {
 	}
 
 	cfg := &config.Config{
+		BridgeName:            "Test Bridge",
 		NefitSerial:           "TEST",
 		NefitAccessKey:        "ACCESS",
 		NefitPassword:         "PASS",

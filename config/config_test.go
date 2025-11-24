@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+const (
+	testBridgeName   = "custom-bridge"
+	testTailnetName  = "custom-tailnet"
+	defaultBridgeVal = "tasmota-homekit"
+)
+
 func TestLoadConfig(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -178,6 +184,9 @@ func TestConfigDefaults(t *testing.T) {
 	}
 
 	// Check defaults
+	if cfg.BridgeName != defaultBridgeVal {
+		t.Errorf("BridgeName = %s, want %s", cfg.BridgeName, defaultBridgeVal)
+	}
 	if cfg.HAPAddrPort().String() != "0.0.0.0:12345" {
 		t.Errorf("HAP addr = %s, want 0.0.0.0:12345", cfg.HAPAddrPort())
 	}
@@ -190,8 +199,8 @@ func TestConfigDefaults(t *testing.T) {
 	if cfg.HAPStoragePath != "/var/lib/nefit-homekit" {
 		t.Errorf("HAPStoragePath = %s, want /var/lib/nefit-homekit", cfg.HAPStoragePath)
 	}
-	if cfg.TailscaleHostname != "nefit-homekit" {
-		t.Errorf("TailscaleHostname = %s, want nefit-homekit", cfg.TailscaleHostname)
+	if cfg.TailscaleHostname != defaultBridgeVal {
+		t.Errorf("TailscaleHostname = %s, want %s", cfg.TailscaleHostname, defaultBridgeVal)
 	}
 	if cfg.XMPPKeepaliveInterval != 30*time.Second {
 		t.Errorf("XMPPKeepaliveInterval = %s, want 30s", cfg.XMPPKeepaliveInterval)
@@ -210,6 +219,49 @@ func TestConfigDefaults(t *testing.T) {
 	}
 	if cfg.LogFormat != "json" {
 		t.Errorf("LogFormat = %s, want json", cfg.LogFormat)
+	}
+}
+
+func TestBridgeNameTailscaleDefaults(t *testing.T) {
+	clearEnv(t)
+
+	t.Setenv("NEFITHK_NEFIT_SERIAL", "123456789")
+	t.Setenv("NEFITHK_NEFIT_ACCESS_KEY", "accesskey123")
+	t.Setenv("NEFITHK_NEFIT_PASSWORD", "password123")
+	t.Setenv("NEFITHK_BRIDGE_NAME", testBridgeName)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error = %v", err)
+	}
+
+	if cfg.BridgeName != testBridgeName {
+		t.Errorf("BridgeName = %s, want %s", cfg.BridgeName, testBridgeName)
+	}
+	if cfg.TailscaleHostname != testBridgeName {
+		t.Errorf("TailscaleHostname = %s, want %s", cfg.TailscaleHostname, testBridgeName)
+	}
+}
+
+func TestExplicitTailscaleHostname(t *testing.T) {
+	clearEnv(t)
+
+	t.Setenv("NEFITHK_NEFIT_SERIAL", "123456789")
+	t.Setenv("NEFITHK_NEFIT_ACCESS_KEY", "accesskey123")
+	t.Setenv("NEFITHK_NEFIT_PASSWORD", "password123")
+	t.Setenv("NEFITHK_BRIDGE_NAME", testBridgeName)
+	t.Setenv("NEFITHK_TAILSCALE_HOSTNAME", testTailnetName)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error = %v", err)
+	}
+
+	if cfg.BridgeName != testBridgeName {
+		t.Errorf("BridgeName = %s, want %s", cfg.BridgeName, testBridgeName)
+	}
+	if cfg.TailscaleHostname != testTailnetName {
+		t.Errorf("TailscaleHostname = %s, want %s", cfg.TailscaleHostname, testTailnetName)
 	}
 }
 
@@ -264,6 +316,8 @@ func TestValidate_XMPPTimings(t *testing.T) {
 				HAPPin:                "00102003",
 				HAPPort:               12345,
 				WebPort:               8080,
+				BridgeName:            "bridge-name",
+				TailscaleHostname:     "bridge-name",
 				XMPPKeepaliveInterval: tt.keepalive,
 				XMPPReconnectBackoff:  tt.reconnectBackoff,
 				XMPPMaxReconnectWait:  tt.maxReconnectWait,

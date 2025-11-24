@@ -15,10 +15,14 @@ const (
 	defaultBindAddress = "0.0.0.0"
 	defaultHAPPort     = 12345
 	defaultWebPort     = 8080
+
+	defaultBridgeName = "tasmota-homekit"
 )
 
 // Config holds all configuration for the nefit-homekit application.
 type Config struct {
+	BridgeName string `env:"NEFITHK_BRIDGE_NAME,default=tasmota-homekit"`
+
 	// Nefit Easy Configuration
 	NefitSerial    string `env:"NEFITHK_NEFIT_SERIAL,required=true"`
 	NefitAccessKey string `env:"NEFITHK_NEFIT_ACCESS_KEY,required=true"`
@@ -33,7 +37,7 @@ type Config struct {
 
 	// Tailscale Configuration
 	TailscaleAuthKey  string `env:"NEFITHK_TAILSCALE_AUTHKEY"`
-	TailscaleHostname string `env:"NEFITHK_TAILSCALE_HOSTNAME,default=nefit-homekit"`
+	TailscaleHostname string `env:"NEFITHK_TAILSCALE_HOSTNAME"`
 	TailscaleStateDir string `env:"NEFITHK_TAILSCALE_STATE_DIR"`
 
 	// Web Server Configuration
@@ -65,6 +69,8 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
+
+	cfg.applyDerivedDefaults()
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
@@ -117,6 +123,15 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+func (c *Config) applyDerivedDefaults() {
+	if c.BridgeName == "" {
+		c.BridgeName = defaultBridgeName
+	}
+	if c.TailscaleHostname == "" {
+		c.TailscaleHostname = c.BridgeName
+	}
 }
 
 func (c *Config) parseAddrPorts() error {

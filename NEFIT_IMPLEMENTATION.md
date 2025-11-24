@@ -40,10 +40,11 @@ All goroutines register with the eventbus and shut down via context cancellation
 ### Environment variables (`NEFITHK_*`)
 
 - Required: `NEFITHK_NEFIT_SERIAL`, `NEFITHK_NEFIT_ACCESS_KEY`, `NEFITHK_NEFIT_PASSWORD`.
+- Identity: `NEFITHK_BRIDGE_NAME` (defaults `tasmota-homekit`) controls the HomeKit bridge label and doubles as the default Tailscale hostname unless `NEFITHK_TAILSCALE_HOSTNAME` is set.
 - Networking: Prefer `NEFITHK_HAP_ADDR` and `NEFITHK_WEB_ADDR` (Go-style `addr:port`). When omitted, the service composes them from `NEFITHK_*_BIND_ADDRESS` (defaults `0.0.0.0`) and `NEFITHK_*_PORT` (defaults `12345`/`8080`).
 - HomeKit: `NEFITHK_HAP_PIN`, `NEFITHK_HAP_STORAGE_PATH` (the module sets this to `services.nefit-homekit.dataDir + "/hap"`).
 - Logging: `NEFITHK_LOG_LEVEL`, `NEFITHK_LOG_FORMAT` (json/console).
-- Tailscale: `NEFITHK_TAILSCALE_HOSTNAME`, `NEFITHK_TAILSCALE_AUTHKEY`, `NEFITHK_TAILSCALE_STATE_DIR`. The module pulls the auth key from `tailscale.authKeyFile`, injects it via credentials, and points the state dir at `services.nefit-homekit.dataDir + "/tailscale"`.
+- Tailscale: `NEFITHK_TAILSCALE_HOSTNAME`, `NEFITHK_TAILSCALE_AUTHKEY`, `NEFITHK_TAILSCALE_STATE_DIR`. The module pulls the auth key from `tailscale.authKeyFile`, injects it via credentials, and points the state dir at `services.nefit-homekit.dataDir + "/tailscale"`. When `NEFITHK_TAILSCALE_HOSTNAME` is omitted, it inherits the bridge name.
 
 Store these variables in `/etc/nefit-homekit/env` (or an agenix secret) and point `services.nefit-homekit.environmentFile` at it. Avoid ad-hoc `Environment` overrides unless you are intentionally pinning non-secret values.
 
@@ -52,8 +53,8 @@ Store these variables in `/etc/nefit-homekit/env` (or an agenix secret) and poin
 `nixosModules.default` exposes the following options (all documented in the README):
 
 - `services.nefit-homekit.enable`, `.package`, `.environmentFile`, `.environment`.
-- `services.nefit-homekit.ports.{hap,web}`, `.hapPin`, `.dataDir`.
-- `services.nefit-homekit.tailscale.{hostname,authKeyFile}`.
+- `services.nefit-homekit.bridgeName`, `.ports.{hap,web}`, `.hapPin`, `.dataDir`.
+- `services.nefit-homekit.tailscale.{hostname,authKeyFile}` (hostname defaults to `bridgeName`).
 - `services.nefit-homekit.log.{level,format}`.
 - `services.nefit-homekit.openFirewall`, `.user`, `.group`.
 

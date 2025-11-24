@@ -44,6 +44,7 @@ func run() error {
 		slog.String("nefit_serial", cfg.NefitSerial),
 		slog.String("hap_addr", cfg.HAPAddrPort().String()),
 		slog.String("web_addr", cfg.WebAddrPort().String()),
+		slog.String("bridge_name", cfg.BridgeName),
 	)
 
 	// Initialize EventBus
