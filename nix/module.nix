@@ -87,12 +87,12 @@ in
 
     bridgeName = mkOption {
       type = types.str;
-      default = "tasmota-homekit";
+      default = "nefit-homekit";
       description = ''
         Base name for the HomeKit bridge; also used as the default
         Tailscale hostname when tailscale.hostname is unset.
       '';
-      example = "tasmota-homekit-dev";
+      example = "nefit-homekit-dev";
     };
 
     user = mkOption {

@@ -9,7 +9,7 @@ import (
 const (
 	testBridgeName   = "custom-bridge"
 	testTailnetName  = "custom-tailnet"
-	defaultBridgeVal = "tasmota-homekit"
+	defaultBridgeVal = "nefit-homekit"
 )
 
 func TestLoadConfig(t *testing.T) {

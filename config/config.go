@@ -16,12 +16,12 @@ const (
 	defaultHAPPort     = 12345
 	defaultWebPort     = 8080
 
-	defaultBridgeName = "tasmota-homekit"
+	defaultBridgeName = "nefit-homekit"
 )
 
 // Config holds all configuration for the nefit-homekit application.
 type Config struct {
-	BridgeName string `env:"NEFITHK_BRIDGE_NAME,default=tasmota-homekit"`
+	BridgeName string `env:"NEFITHK_BRIDGE_NAME,default=nefit-homekit"`
 
 	// Nefit Easy Configuration
 	NefitSerial    string `env:"NEFITHK_NEFIT_SERIAL,required=true"`

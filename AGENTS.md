@@ -24,6 +24,7 @@ nix flake check
 - `config`, `events`, `homekit`, `web`, `nefit`, `logging`: core packages (stay modular but rooted).
 - `flake.nix`: authoritative devShell, package, and NixOS module definitions.
 - Keep repo-level planning notes up to date, but do not mention them inside documentation files.
+- When running local/dev deployments, suffix bridge/tailscale names with `-dev` (see `.env.example`) so they never collide with production instances.
 - Listener env vars are Go-style `addr:port` pairs (`NEFITHK_{HAP,WEB}_ADDR`). When adding options, ensure `bindAddresses.*` + `ports.*` stay in sync with the module + README.
 - Web/kra server exposes `/`, `/api/{temperature,mode}`, `/events`, `/health`, `/metrics`, `/qrcode`, `/debug/eventbus`; SSE payloads are JSON `StateUpdateEvent` structs consumed by `tasmota-homekit` too.
 - GitHub Actions `ci.yml` runs go tests (coverage + race, Linux/macOS), golangci-lint, `nix build`, `nix flake check --all-systems`, and both NixOS VM tests. Match those locally before pushing.

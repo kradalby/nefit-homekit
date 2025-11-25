@@ -63,7 +63,7 @@ All runtime configuration uses `NEFITHK_` environment variables. Create an envir
 
 ```bash
 cat >/etc/nefit-homekit/env <<'EOF'
-NEFITHK_BRIDGE_NAME=tasmota-homekit
+NEFITHK_BRIDGE_NAME=nefit-homekit
 NEFITHK_NEFIT_SERIAL=your-serial
 NEFITHK_NEFIT_ACCESS_KEY=your-access-key
 NEFITHK_NEFIT_PASSWORD=your-password
@@ -74,7 +74,7 @@ NEFITHK_LOG_LEVEL=info
 NEFITHK_LOG_FORMAT=json
 # Optional: enable tailscale/kra listener
 # NEFITHK_TAILSCALE_AUTHKEY=tskey-abc
-# NEFITHK_TAILSCALE_HOSTNAME=tasmota-homekit
+# NEFITHK_TAILSCALE_HOSTNAME=nefit-homekit
 # NEFITHK_TAILSCALE_STATE_DIR=/var/lib/nefit-homekit/tailscale
 EOF
 chmod 600 /etc/nefit-homekit/env

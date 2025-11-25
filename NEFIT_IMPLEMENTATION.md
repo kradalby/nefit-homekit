@@ -40,7 +40,7 @@ All goroutines register with the eventbus and shut down via context cancellation
 ### Environment variables (`NEFITHK_*`)
 
 - Required: `NEFITHK_NEFIT_SERIAL`, `NEFITHK_NEFIT_ACCESS_KEY`, `NEFITHK_NEFIT_PASSWORD`.
-- Identity: `NEFITHK_BRIDGE_NAME` (defaults `tasmota-homekit`) controls the HomeKit bridge label and doubles as the default Tailscale hostname unless `NEFITHK_TAILSCALE_HOSTNAME` is set.
+- Identity: `NEFITHK_BRIDGE_NAME` (defaults `nefit-homekit`) controls the HomeKit bridge label and doubles as the default Tailscale hostname unless `NEFITHK_TAILSCALE_HOSTNAME` is set.
 - Networking: Prefer `NEFITHK_HAP_ADDR` and `NEFITHK_WEB_ADDR` (Go-style `addr:port`). When omitted, the service composes them from `NEFITHK_*_BIND_ADDRESS` (defaults `0.0.0.0`) and `NEFITHK_*_PORT` (defaults `12345`/`8080`).
 - HomeKit: `NEFITHK_HAP_PIN`, `NEFITHK_HAP_STORAGE_PATH` (the module sets this to `services.nefit-homekit.dataDir + "/hap"`).
 - Logging: `NEFITHK_LOG_LEVEL`, `NEFITHK_LOG_FORMAT` (json/console).
