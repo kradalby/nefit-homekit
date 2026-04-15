@@ -12,8 +12,8 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
 
-          # Go version - use latest 1.25.x
-          go = pkgs.go_1_25;
+          # Go version - use 1.26.x (required for tailscale v1.96.x)
+          go = pkgs.go_1_26;
 
         in
         {
@@ -82,12 +82,12 @@
           };
 
           # Package output
-          packages.default = pkgs.buildGoModule {
+          packages.default = (pkgs.buildGoModule.override { go = pkgs.go_1_26; }) {
             pname = "nefit-homekit";
             version = "0.1.0";
             src = ./.;
 
-            vendorHash = "sha256-510f/Je1rSMiyT26jRHbHb1LETI3ncQ6BQEYcdIwU44=";
+            vendorHash = "sha256-gPUCeaqIGMN9tJ0QE0U+m7RQpRRG3/65QOt5sBB9hYY=";
 
             # Allow Go to auto-download the required toolchain version
             proxyVendor = true;
