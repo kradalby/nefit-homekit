@@ -25,9 +25,9 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: NixOS/nix-installer-action@main
+      - uses: NixOS/nix-installer-action@6b8548fe06acfb0155a50ab5d561accb215764cc # main
 
-      - uses: Mic92/hestia/action@main
+      - uses: Mic92/hestia/action@ff07bb902a9968ac0c3d0e51d90a606662a375d8 # main
 
       - name: Run unit tests with coverage
         run: go test -v -cover -coverprofile=coverage.out ./...
@@ -52,9 +52,9 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: NixOS/nix-installer-action@main
+      - uses: NixOS/nix-installer-action@6b8548fe06acfb0155a50ab5d561accb215764cc # main
 
-      - uses: Mic92/hestia/action@main
+      - uses: Mic92/hestia/action@ff07bb902a9968ac0c3d0e51d90a606662a375d8 # main
 
       - name: Run golangci-lint
         run: golangci-lint run ./...
@@ -68,9 +68,9 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: NixOS/nix-installer-action@main
+      - uses: NixOS/nix-installer-action@6b8548fe06acfb0155a50ab5d561accb215764cc # main
 
-      - uses: Mic92/hestia/action@main
+      - uses: Mic92/hestia/action@ff07bb902a9968ac0c3d0e51d90a606662a375d8 # main
 
       - name: Build binary with Nix
         run: nix build -L .#nefit-homekit
@@ -95,9 +95,9 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: NixOS/nix-installer-action@main
+      - uses: NixOS/nix-installer-action@6b8548fe06acfb0155a50ab5d561accb215764cc # main
 
-      - uses: Mic92/hestia/action@main
+      - uses: Mic92/hestia/action@ff07bb902a9968ac0c3d0e51d90a606662a375d8 # main
 
       - name: Run nix flake check
         # --no-build: evaluate the flake (catches eval/structure errors) without
@@ -122,9 +122,9 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: NixOS/nix-installer-action@main
+      - uses: NixOS/nix-installer-action@6b8548fe06acfb0155a50ab5d561accb215764cc # main
 
-      - uses: Mic92/hestia/action@main
+      - uses: Mic92/hestia/action@ff07bb902a9968ac0c3d0e51d90a606662a375d8 # main
 
       - name: Enable KVM permissions
         run: |
