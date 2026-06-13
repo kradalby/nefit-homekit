@@ -17,7 +17,7 @@ Jobs:
    - Uploads coverage artifact from the Linux job
 
 2. **Lint**
-   - Runs `nix develop --command golangci-lint run ./...`
+   - Runs `golangci-lint run ./...`
 
 3. **Build**
    - Matrix: `ubuntu-latest`, `macos-latest`
@@ -45,8 +45,11 @@ Jobs:
 
 All workflows use:
 
-- **DeterminateSystems Nix Installer** - Official Nix installer for CI
-- **Magic Nix Cache** - GitHub Actions cache integration (automatic)
+- **Official Nix Installer** (`NixOS/nix-installer-action`) - installs Nix in CI
+- **hestia** (`Mic92/hestia/action`) - GitHub Actions cache integration for the Nix store
+
+A workflow-level default shell (`nix develop --command bash`) runs every step
+inside the flake devShell, so tools are available without a per-step prefix.
 
 No external services or tokens needed.
 
@@ -73,16 +76,17 @@ nix flake check
 
 ## Caching Strategy
 
-Workflows use **Magic Nix Cache** from DeterminateSystems:
+Workflows use **hestia** (`Mic92/hestia/action`) to cache the Nix store:
 
-- Automatic integration with GitHub Actions cache
+- Integrates with the GitHub Actions cache
 - No configuration needed
-- Free for public repositories
 - **Benefits:**
   - Faster CI runs (caches Nix store paths)
   - Reduced build times
   - No external services required
   - Works seamlessly across workflow runs
+
+A scheduled `gc.yml` workflow garbage-collects the hestia cache daily.
 
 ## Status Badges
 
