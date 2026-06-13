@@ -129,7 +129,7 @@ func TestHandleIndex(t *testing.T) {
 	}()
 
 	// Test GET request
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
 
 	server.handleIndex(w, req)
@@ -147,7 +147,7 @@ func TestHandleIndex(t *testing.T) {
 	}
 
 	// Test POST request (should fail)
-	req = httptest.NewRequest(http.MethodPost, "/", nil)
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/", nil)
 	w = httptest.NewRecorder()
 
 	server.handleIndex(w, req)
@@ -180,7 +180,7 @@ func TestHandleHealth(t *testing.T) {
 		_ = server.Close()
 	}()
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 
 	server.handleHealth(w, req)
@@ -264,7 +264,7 @@ func TestHandleSetTemperature(t *testing.T) {
 			form := url.Values{}
 			form.Add("temperature", tt.temp)
 
-			req := httptest.NewRequest(http.MethodPost, "/api/temperature", strings.NewReader(form.Encode()))
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/temperature", strings.NewReader(form.Encode()))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			w := httptest.NewRecorder()
 
@@ -351,7 +351,7 @@ func TestHandleSetMode(t *testing.T) {
 			form := url.Values{}
 			form.Add("mode", tt.mode)
 
-			req := httptest.NewRequest(http.MethodPost, "/api/mode", strings.NewReader(form.Encode()))
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/mode", strings.NewReader(form.Encode()))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			w := httptest.NewRecorder()
 
@@ -533,7 +533,7 @@ func TestHandleSSE(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/events", nil)
 	req = req.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -619,7 +619,7 @@ func TestHandleEventBusDebug(t *testing.T) {
 		_ = server.Close()
 	}()
 
-	req := httptest.NewRequest(http.MethodGet, "/debug/eventbus", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/debug/eventbus", nil)
 	w := httptest.NewRecorder()
 
 	server.handleEventBusDebug(w, req)

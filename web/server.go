@@ -29,6 +29,10 @@ var appJS string
 const (
 	modeOff  = "off"
 	modeHeat = "heat"
+
+	// maxFormBodySize bounds request bodies for form-parsing handlers to
+	// avoid memory exhaustion (gosec G120).
+	maxFormBodySize = 1 << 20 // 1 MiB
 )
 
 // Server manages the web interface.
@@ -293,6 +297,7 @@ func (s *Server) handleSetTemperature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Invalid form data", http.StatusBadRequest)
 		return
@@ -334,6 +339,7 @@ func (s *Server) handleSetMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Invalid form data", http.StatusBadRequest)
 		return
