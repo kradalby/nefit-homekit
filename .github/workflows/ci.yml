@@ -5,6 +5,9 @@ on:
     branches: [main, initial-work]
   pull_request:
     branches: [main]
+  # The NixOS VM tests need a live Bosch backend + real HAP pin, so they only
+  # run on manual dispatch (see the nixos-tests job's if-guard).
+  workflow_dispatch:
 
 # Every `run:` step executes inside `nix develop`, so tools come straight from
 # the flake devShell with no per-step prefix.
@@ -106,6 +109,10 @@ jobs:
 
   nixos-tests:
     name: NixOS Tests (${{ matrix.check }})
+    # Boots a VM running the service, which needs a live Bosch backend and a
+    # valid (non-insecure) HAP pin; not reachable in sandboxed push/PR CI.
+    # Run on demand with `gh workflow run CI` once those are available.
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     needs: flake-check
     strategy:
