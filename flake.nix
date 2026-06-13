@@ -4,16 +4,30 @@
   inputs = {
     nixpkgs.url = "nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    flake-checks.url = "github:kradalby/flake-checks";
+    flake-checks.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, flake-checks }:
     flake-utils.lib.eachDefaultSystem
       (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          fc = flake-checks.lib;
 
           # Go version - use 1.26.x (required for tailscale v1.96.x)
           go = pkgs.go_1_26;
+
+          common = {
+            inherit pkgs;
+            root = ./.;
+            pname = "nefit-homekit";
+            version = "0.1.0";
+            vendorHash = "sha256-udlX14EE4mrC9zxOghGrZDBNJgvYWXP0ebdr7N0xPoU=";
+            goPkg = go;
+            # web/server.go embeds web/static/app.js.
+            embedDirs = [ (./. + "/web/static") ];
+          };
 
         in
         {
@@ -82,39 +96,20 @@
           };
 
           # Package output
-          packages.default = (pkgs.buildGoModule.override { go = pkgs.go_1_26; }) {
-            pname = "nefit-homekit";
-            version = "0.1.0";
-            src = ./.;
-
-            vendorHash = "sha256-gPUCeaqIGMN9tJ0QE0U+m7RQpRRG3/65QOt5sBB9hYY=";
-
-            # Allow Go to auto-download the required toolchain version
-            proxyVendor = true;
-            allowGoReference = true;
-
-            preBuild = ''
-              export GOTOOLCHAIN=auto
-            '';
-
-            ldflags = [
-              "-s"
-              "-w"
-              "-X main.version=0.1.0"
-            ];
-
-            meta = with pkgs.lib; {
-              description = "HomeKit bridge for Nefit Easy thermostat";
-              homepage = "https://github.com/kradalby/nefit-homekit";
-              license = licenses.mit;
-              maintainers = [ ];
-            };
-          };
+          packages.default = fc.goBuild common;
 
           packages.nefit-homekit = self.packages.${system}.default;
 
-          # NixOS tests
+          formatter = fc.formatter common;
+
+          # Gate checks via the shared flake-checks library, merged with the
+          # NixOS VM tests (gated to manual dispatch in CI).
           checks = {
+            build = fc.goBuild common;
+            gotest = fc.goTest common;
+            golangci-lint = fc.goLint common;
+            formatting = fc.goFormat common;
+          } // {
             module-test = import ./nix/test.nix {
               inherit pkgs system;
               inherit self;

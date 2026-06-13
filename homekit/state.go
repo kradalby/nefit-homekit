@@ -50,7 +50,7 @@ func savePreviousTemperature(storagePath string, temp float64) error {
 
 	// Write atomically using a temp file
 	tempPath := statePath + ".tmp"
-	if err := os.WriteFile(tempPath, data, 0600); err != nil {
+	if err := os.WriteFile(tempPath, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write temp state file: %w", err)
 	}
 
