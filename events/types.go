@@ -5,6 +5,14 @@ import (
 	"time"
 )
 
+// Event source/component identifiers, used for the Source and Component
+// fields of the event payloads below.
+const (
+	SourceNefit   = "nefit"
+	SourceHomeKit = "homekit"
+	SourceWeb     = "web"
+)
+
 // EventType represents the type of event.
 type EventType string
 

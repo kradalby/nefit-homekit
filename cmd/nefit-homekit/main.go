@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -25,6 +26,18 @@ func main() {
 	}
 }
 
+// closeWithLog closes c, logging start and any error. Cleanup is best-effort.
+func closeWithLog(logger *slog.Logger, name string, c io.Closer) {
+	logger.Info("closing " + name)
+	if err := c.Close(); err != nil {
+		logger.Warn(
+			"failed to close",
+			slog.String("component", name),
+			slog.Any("error", err),
+		)
+	}
+}
+
 func run() error {
 	// Load configuration
 	cfg, err := config.Load()
@@ -38,7 +51,8 @@ func run() error {
 		return fmt.Errorf("failed to setup logger: %w", err)
 	}
 
-	logger.Info("starting nefit-homekit",
+	logger.Info(
+		"starting nefit-homekit",
 		slog.String("log_level", cfg.LogLevel),
 		slog.String("log_format", cfg.LogFormat),
 		slog.String("nefit_serial", cfg.NefitSerial),
@@ -53,10 +67,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to create eventbus: %w", err)
 	}
-	defer func() {
-		logger.Info("closing eventbus")
-		_ = bus.Close()
-	}()
+	defer closeWithLog(logger, "eventbus", bus)
 
 	// Initialize Nefit client
 	logger.Info("initializing nefit client")
@@ -64,10 +75,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to create nefit client: %w", err)
 	}
-	defer func() {
-		logger.Info("closing nefit client")
-		_ = nefitClient.Close()
-	}()
+	defer closeWithLog(logger, "nefit client", nefitClient)
 
 	// Initialize HomeKit server
 	logger.Info("initializing homekit server")
@@ -75,10 +83,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to create homekit server: %w", err)
 	}
-	defer func() {
-		logger.Info("closing homekit server")
-		_ = homekitServer.Close()
-	}()
+	defer closeWithLog(logger, "homekit server", homekitServer)
 
 	// Initialize Web server
 	logger.Info("initializing web server")
@@ -86,10 +91,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to create web server: %w", err)
 	}
-	defer func() {
-		logger.Info("closing web server")
-		_ = webServer.Close()
-	}()
+	defer closeWithLog(logger, "web server", webServer)
 
 	// Start all services
 	logger.Info("starting services")
@@ -106,15 +108,18 @@ func run() error {
 		return fmt.Errorf("failed to start web server: %w", err)
 	}
 
-	logger.Info("nefit-homekit started successfully",
+	logger.Info(
+		"nefit-homekit started successfully",
 		slog.String("hap_addr", cfg.HAPAddrPort().String()),
 		slog.String("web_addr", cfg.WebAddrPort().String()),
 	)
-	logger.Info("homekit pairing",
+	logger.Info(
+		"homekit pairing",
 		slog.String("pin", cfg.HAPPin),
 		slog.String("instructions", "Use the Home app to add accessory with PIN"),
 	)
-	logger.Info("web interface",
+	logger.Info(
+		"web interface",
 		slog.String("url", fmt.Sprintf("http://%s", cfg.WebAddrPort().String())),
 	)
 
@@ -123,7 +128,8 @@ func run() error {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	sig := <-sigChan
-	logger.Info("received shutdown signal",
+	logger.Info(
+		"received shutdown signal",
 		slog.String("signal", sig.String()),
 	)
 

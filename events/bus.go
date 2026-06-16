@@ -59,7 +59,8 @@ func New(logger *slog.Logger) (*Bus, error) {
 	// Create named clients
 	b.createClients()
 
-	logger.Info("eventbus initialized",
+	logger.Info(
+		"eventbus initialized",
 		slog.Int("client_count", len(b.clients)),
 	)
 
@@ -114,7 +115,8 @@ func (b *Bus) publishStateUpdate(client *eventbus.Client, event StateUpdateEvent
 
 	// Check if this event is a duplicate of the last published state
 	if !force && b.lastState != nil && event.Equals(*b.lastState) {
-		b.logger.Debug("skipping duplicate state update event",
+		b.logger.Debug(
+			"skipping duplicate state update event",
 			slog.String("source", event.Source),
 			slog.Float64("current_temp", event.CurrentTemperature),
 			slog.Float64("target_temp", event.TargetTemperature),
@@ -122,7 +124,8 @@ func (b *Bus) publishStateUpdate(client *eventbus.Client, event StateUpdateEvent
 		return
 	}
 
-	b.logger.Debug("publishing state update event",
+	b.logger.Debug(
+		"publishing state update event",
 		slog.String("source", event.Source),
 		slog.Float64("current_temp", event.CurrentTemperature),
 		slog.Float64("target_temp", event.TargetTemperature),
@@ -138,7 +141,8 @@ func (b *Bus) publishStateUpdate(client *eventbus.Client, event StateUpdateEvent
 
 // PublishCommand publishes a command event.
 func (b *Bus) PublishCommand(client *eventbus.Client, event CommandEvent) {
-	b.logger.Debug("publishing command event",
+	b.logger.Debug(
+		"publishing command event",
 		slog.String("source", event.Source),
 		slog.String("command_type", string(event.CommandType)),
 	)
@@ -150,7 +154,8 @@ func (b *Bus) PublishCommand(client *eventbus.Client, event CommandEvent) {
 
 // PublishConnectionStatus publishes a connection status event.
 func (b *Bus) PublishConnectionStatus(client *eventbus.Client, event ConnectionStatusEvent) {
-	b.logger.Debug("publishing connection status event",
+	b.logger.Debug(
+		"publishing connection status event",
 		slog.String("component", event.Component),
 		slog.String("status", string(event.Status)),
 	)

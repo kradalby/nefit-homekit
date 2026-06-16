@@ -96,7 +96,8 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 	s.server.Pin = cfg.HAPPin
 	s.server.Addr = cfg.HAPAddrPort().String()
 
-	logger.Info("homekit server created",
+	logger.Info(
+		"homekit server created",
 		slog.String("name", info.Name),
 		slog.String("serial", info.SerialNumber),
 		slog.String("pin", cfg.HAPPin),
@@ -167,13 +168,14 @@ func (s *Server) printSetupQRCode() {
 func (s *Server) setupAccessoryCallbacks() {
 	// Target temperature changed
 	s.accessory.Thermostat.TargetTemperature.OnValueRemoteUpdate(func(temp float64) {
-		s.logger.Info("target temperature changed via HomeKit",
+		s.logger.Info(
+			"target temperature changed via HomeKit",
 			slog.Float64("temperature", temp),
 		)
 
 		// Publish command event
 		event := events.CommandEvent{
-			Source:            "homekit",
+			Source:            events.SourceHomeKit,
 			CommandType:       events.CommandTypeSetTemperature,
 			TargetTemperature: &temp,
 		}
@@ -182,7 +184,8 @@ func (s *Server) setupAccessoryCallbacks() {
 
 	// Target heating cooling state changed
 	s.accessory.Thermostat.TargetHeatingCoolingState.OnValueRemoteUpdate(func(state int) {
-		s.logger.Info("heating mode changed via HomeKit",
+		s.logger.Info(
+			"heating mode changed via HomeKit",
 			slog.Int("state", state),
 		)
 
@@ -198,11 +201,13 @@ func (s *Server) setupAccessoryCallbacks() {
 			temp := tempDefaultOn
 			if prevTemp, err := loadPreviousTemperature(s.cfg.HAPStoragePath); err == nil {
 				temp = prevTemp
-				s.logger.Info("restored previous temperature",
+				s.logger.Info(
+					"restored previous temperature",
 					slog.Float64("temperature", temp),
 				)
 			} else {
-				s.logger.Info("using default temperature (no previous state)",
+				s.logger.Info(
+					"using default temperature (no previous state)",
 					slog.Float64("temperature", temp),
 					slog.Any("error", err),
 				)
@@ -211,13 +216,14 @@ func (s *Server) setupAccessoryCallbacks() {
 			// Set to manual mode (heat)
 			mode := modeHeat
 
-			s.logger.Info("turning on: setting to manual mode",
+			s.logger.Info(
+				"turning on: setting to manual mode",
 				slog.Float64("temperature", temp),
 			)
 
 			// Publish mode command
 			modeEvent := events.CommandEvent{
-				Source:      "homekit",
+				Source:      events.SourceHomeKit,
 				CommandType: events.CommandTypeSetMode,
 				Mode:        &mode,
 			}
@@ -225,7 +231,7 @@ func (s *Server) setupAccessoryCallbacks() {
 
 			// Publish temperature command
 			tempEvent := events.CommandEvent{
-				Source:            "homekit",
+				Source:            events.SourceHomeKit,
 				CommandType:       events.CommandTypeSetTemperature,
 				TargetTemperature: &temp,
 			}
@@ -256,14 +262,27 @@ func (s *Server) handleStateUpdates() {
 	}
 }
 
+// setChar applies a HomeKit characteristic SetValue result, logging any error.
+// Characteristic updates are best-effort; a failure should not abort the sync.
+func (s *Server) setChar(name string, err error) {
+	if err != nil {
+		s.logger.Warn(
+			"failed to set HomeKit characteristic",
+			slog.String("characteristic", name),
+			slog.Any("error", err),
+		)
+	}
+}
+
 // updateAccessory updates the accessory with new state.
 func (s *Server) updateAccessory(event events.StateUpdateEvent) {
 	// Only update if event is from nefit (avoid loops)
-	if event.Source != "nefit" {
+	if event.Source != events.SourceNefit {
 		return
 	}
 
-	s.logger.Debug("updating accessory from state event",
+	s.logger.Debug(
+		"updating accessory from state event",
 		slog.Float64("current_temp", event.CurrentTemperature),
 		slog.Float64("target_temp", event.TargetTemperature),
 		slog.Bool("heating", event.HeatingActive),
@@ -277,17 +296,17 @@ func (s *Server) updateAccessory(event events.StateUpdateEvent) {
 
 	// Update current heating cooling state
 	if event.HeatingActive {
-		_ = s.accessory.Thermostat.CurrentHeatingCoolingState.SetValue(1) // Heating
+		s.setChar("CurrentHeatingCoolingState", s.accessory.Thermostat.CurrentHeatingCoolingState.SetValue(1)) // Heating
 	} else {
-		_ = s.accessory.Thermostat.CurrentHeatingCoolingState.SetValue(0) // Off
+		s.setChar("CurrentHeatingCoolingState", s.accessory.Thermostat.CurrentHeatingCoolingState.SetValue(0)) // Off
 	}
 
 	// Update target heating cooling state based on mode
 	switch event.Mode {
 	case modeOff:
-		_ = s.accessory.Thermostat.TargetHeatingCoolingState.SetValue(0) // Off
+		s.setChar("TargetHeatingCoolingState", s.accessory.Thermostat.TargetHeatingCoolingState.SetValue(0)) // Off
 	case modeHeat:
-		_ = s.accessory.Thermostat.TargetHeatingCoolingState.SetValue(1) // Heat
+		s.setChar("TargetHeatingCoolingState", s.accessory.Thermostat.TargetHeatingCoolingState.SetValue(1)) // Heat
 	default:
 		s.logger.Warn("unknown mode", slog.String("mode", event.Mode))
 	}
@@ -296,7 +315,7 @@ func (s *Server) updateAccessory(event events.StateUpdateEvent) {
 // publishConnectionStatus publishes a connection status event.
 func (s *Server) publishConnectionStatus(status events.ConnectionStatus, errMsg string) {
 	event := events.ConnectionStatusEvent{
-		Component: "homekit",
+		Component: events.SourceHomeKit,
 		Status:    status,
 		Error:     errMsg,
 	}
@@ -311,7 +330,7 @@ func (s *Server) Close() error {
 
 	s.cancel()
 
-	// The server stops when the context is cancelled
+	// The server stops when the context is canceled
 
 	s.logger.Info("homekit server shut down complete")
 	return nil

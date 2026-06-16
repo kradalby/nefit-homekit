@@ -30,7 +30,7 @@ in
         NEFITHK_NEFIT_SERIAL=your-serial
         NEFITHK_NEFIT_ACCESS_KEY=your-key
         NEFITHK_NEFIT_PASSWORD=your-password
-        NEFITHK_HAP_PIN=12345678
+        NEFITHK_HAP_PIN=03145154
         NEFITHK_HAP_PORT=12345
         NEFITHK_WEB_PORT=8080
         ```
@@ -79,7 +79,7 @@ in
         {
           NEFITHK_NEFIT_SERIAL = "your-serial";
           NEFITHK_NEFIT_ACCESS_KEY = "your-key";
-          NEFITHK_HAP_PIN = "12345678";
+          NEFITHK_HAP_PIN = "03145154";
           NEFITHK_LOG_LEVEL = "debug";
         }
       '';

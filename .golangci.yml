@@ -1,5 +1,5 @@
 # golangci-lint configuration v2
-version: 2
+version: "2"
 
 run:
   timeout: 5m
@@ -31,47 +31,54 @@ linters:
     - predeclared
     - whitespace
 
-linters-settings:
-  govet:
-    disable:
-      - shadow
+  settings:
+    govet:
+      disable:
+        - shadow
 
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
 
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - experimental
-      - opinionated
-      - performance
-      - style
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+      disabled-checks:
+        # Events flow through tailscale.com/util/eventbus, whose generic
+        # Publish/Subscribe API is value-typed by design. Passing events by
+        # pointer to satisfy hugeParam would force pointer event types across
+        # every publisher and subscriber and break that contract.
+        - hugeParam
 
-  gosec:
-    excludes:
-      - G104
+    gosec:
+      excludes:
+        - G104
 
-  gocyclo:
-    min-complexity: 15
+    gocyclo:
+      min-complexity: 15
 
-  misspell:
-    locale: US
+    misspell:
+      locale: US
 
-  nolintlint:
-    allow-unused: false
-    require-explanation: true
-    require-specific: true
+    nolintlint:
+      allow-unused: false
+      require-explanation: true
+      require-specific: true
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gocyclo
+          - errcheck
+          - gosec
+          - goconst
+          - gochecknoinits
 
 issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - gocyclo
-        - errcheck
-        - gosec
-        - goconst
-        - gochecknoinits
-
   max-issues-per-linter: 0
   max-same-issues: 0

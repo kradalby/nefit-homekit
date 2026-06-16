@@ -7,6 +7,20 @@ import (
 	"os"
 )
 
+// Log level names accepted by New and config validation.
+const (
+	LevelDebug = "debug"
+	LevelInfo  = "info"
+	LevelWarn  = "warn"
+	LevelError = "error"
+)
+
+// Log format names accepted by New and config validation.
+const (
+	FormatJSON    = "json"
+	FormatConsole = "console"
+)
+
 // New creates a slog.Logger configured with the desired level and format.
 // format can be "json" or "console".
 func New(level, format string) (*slog.Logger, error) {
@@ -29,13 +43,13 @@ func New(level, format string) (*slog.Logger, error) {
 
 func parseLevel(level string) (slog.Level, error) {
 	switch level {
-	case "debug":
+	case LevelDebug:
 		return slog.LevelDebug, nil
-	case "info":
+	case LevelInfo:
 		return slog.LevelInfo, nil
-	case "warn":
+	case LevelWarn:
 		return slog.LevelWarn, nil
-	case "error":
+	case LevelError:
 		return slog.LevelError, nil
 	default:
 		return slog.LevelInfo, fmt.Errorf("invalid log level %q, must be one of: debug, info, warn, error", level)
@@ -44,9 +58,9 @@ func parseLevel(level string) (slog.Level, error) {
 
 func buildHandler(format string, opts *slog.HandlerOptions) (slog.Handler, error) {
 	switch format {
-	case "json":
+	case FormatJSON:
 		return slog.NewJSONHandler(os.Stdout, opts), nil
-	case "console":
+	case FormatConsole:
 		return slog.NewTextHandler(os.Stdout, opts), nil
 	default:
 		return nil, fmt.Errorf("invalid log format %q, must be 'json' or 'console'", format)

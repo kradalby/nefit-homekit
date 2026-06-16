@@ -378,11 +378,11 @@ func TestClose(t *testing.T) {
 		t.Errorf("Close() error = %v", err)
 	}
 
-	// Verify context was cancelled
+	// Verify context was canceled
 	select {
 	case <-server.ctx.Done():
 		// Success
 	default:
-		t.Error("context was not cancelled")
+		t.Error("context was not canceled")
 	}
 }

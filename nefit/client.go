@@ -82,7 +82,8 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Client, err
 		cancel:      cancel,
 	}
 
-	logger.Info("nefit client created",
+	logger.Info(
+		"nefit client created",
 		slog.String("serial", cfg.NefitSerial),
 	)
 
@@ -118,7 +119,8 @@ func (c *Client) connectWithRetry() {
 		default:
 		}
 
-		c.logger.Info("attempting to connect to nefit backend",
+		c.logger.Info(
+			"attempting to connect to nefit backend",
 			slog.Int("attempt", c.reconnectNum+1),
 		)
 
@@ -133,13 +135,14 @@ func (c *Client) connectWithRetry() {
 			// Start periodic status polling to keep connection alive
 			go c.pollStatus()
 
-			// Wait for connection to close or context to be cancelled
+			// Wait for connection to close or context to be canceled
 			<-c.ctx.Done()
 			return
 		}
 
 		c.reconnectNum++
-		c.logger.Error("failed to connect to nefit backend",
+		c.logger.Error(
+			"failed to connect to nefit backend",
 			slog.Any("error", err),
 			slog.Int("attempt", c.reconnectNum),
 			slog.Duration("backoff", backoff),
@@ -165,7 +168,8 @@ func (c *Client) pollStatus() {
 	ticker := time.NewTicker(c.cfg.XMPPKeepaliveInterval)
 	defer ticker.Stop()
 
-	c.logger.Debug("starting status polling",
+	c.logger.Debug(
+		"starting status polling",
 		slog.Duration("interval", c.cfg.XMPPKeepaliveInterval),
 	)
 
@@ -201,7 +205,8 @@ func (c *Client) fetchAndPublishStatus(force bool) error {
 
 // handleNefitEvent is called when the Nefit backend sends a push notification.
 func (c *Client) handleNefitEvent(uri string, data interface{}) {
-	c.logger.Debug("received nefit event",
+	c.logger.Debug(
+		"received nefit event",
 		slog.String("uri", uri),
 	)
 
@@ -241,7 +246,7 @@ func (c *Client) publishStateUpdate(status types.Status, force bool) {
 	}
 
 	event := events.StateUpdateEvent{
-		Source:             "nefit",
+		Source:             events.SourceNefit,
 		CurrentTemperature: status.InHouseTemp,
 		TargetTemperature:  status.TempSetpoint,
 		HeatingActive:      heatingActive,
@@ -249,7 +254,8 @@ func (c *Client) publishStateUpdate(status types.Status, force bool) {
 		HotWaterActive:     status.HotWaterActive,
 	}
 
-	c.logger.Debug("publishing state update",
+	c.logger.Debug(
+		"publishing state update",
 		slog.Float64("current_temp", event.CurrentTemperature),
 		slog.Float64("target_temp", event.TargetTemperature),
 		slog.Bool("heating", event.HeatingActive),
@@ -320,7 +326,7 @@ func (c *Client) handleCommands() {
 				return
 			}
 			// Only process commands from homekit and web (not from ourselves)
-			if event.Source == "nefit" {
+			if event.Source == events.SourceNefit {
 				continue
 			}
 
@@ -361,7 +367,8 @@ func (c *Client) handleCommand(cmd events.CommandEvent) {
 			return
 		}
 
-		c.logger.Info("setting target temperature",
+		c.logger.Info(
+			"setting target temperature",
 			slog.Float64("temperature", *cmd.TargetTemperature),
 		)
 
@@ -378,7 +385,8 @@ func (c *Client) handleCommand(cmd events.CommandEvent) {
 			return
 		}
 
-		c.logger.Info("setting mode",
+		c.logger.Info(
+			"setting mode",
 			slog.String("mode", *cmd.Mode),
 		)
 
@@ -395,7 +403,8 @@ func (c *Client) handleCommand(cmd events.CommandEvent) {
 			return
 		}
 
-		c.logger.Info("setting hot water",
+		c.logger.Info(
+			"setting hot water",
 			slog.Bool("enabled", *cmd.HotWaterEnabled),
 		)
 
@@ -407,7 +416,8 @@ func (c *Client) handleCommand(cmd events.CommandEvent) {
 		success = true
 
 	default:
-		c.logger.Warn("unknown command type",
+		c.logger.Warn(
+			"unknown command type",
 			slog.String("type", string(cmd.CommandType)),
 		)
 		success = true
@@ -437,7 +447,8 @@ func (c *Client) republishLastState() {
 		return
 	}
 
-	c.logger.Debug("republishing last known state after sync failure",
+	c.logger.Debug(
+		"republishing last known state after sync failure",
 		slog.Float64("current_temp", last.CurrentTemperature),
 		slog.Float64("target_temp", last.TargetTemperature),
 	)
@@ -467,7 +478,7 @@ func (c *Client) setUserMode(ctx context.Context, mode string) error {
 // publishConnectionStatus publishes a connection status event.
 func (c *Client) publishConnectionStatus(status events.ConnectionStatus, errMsg string) {
 	event := events.ConnectionStatusEvent{
-		Component:  "nefit",
+		Component:  events.SourceNefit,
 		Status:     status,
 		Error:      errMsg,
 		Reconnects: c.reconnectNum,

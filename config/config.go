@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Netflix/go-env"
+	"github.com/kradalby/nefit-homekit/logging"
 )
 
 const (
@@ -104,10 +105,10 @@ func (c *Config) Validate() error {
 
 	// Validate log level
 	validLogLevels := map[string]bool{
-		"debug": true,
-		"info":  true,
-		"warn":  true,
-		"error": true,
+		logging.LevelDebug: true,
+		logging.LevelInfo:  true,
+		logging.LevelWarn:  true,
+		logging.LevelError: true,
 	}
 	if !validLogLevels[c.LogLevel] {
 		return fmt.Errorf("invalid log level %q, must be one of: debug, info, warn, error", c.LogLevel)
@@ -115,8 +116,8 @@ func (c *Config) Validate() error {
 
 	// Validate log format
 	validLogFormats := map[string]bool{
-		"json":    true,
-		"console": true,
+		logging.FormatJSON:    true,
+		logging.FormatConsole: true,
 	}
 	if !validLogFormats[c.LogFormat] {
 		return fmt.Errorf("invalid log format %q, must be one of: json, console", c.LogFormat)

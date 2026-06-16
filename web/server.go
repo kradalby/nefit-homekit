@@ -33,6 +33,9 @@ const (
 	// maxFormBodySize bounds request bodies for form-parsing handlers to
 	// avoid memory exhaustion (gosec G120).
 	maxFormBodySize = 1 << 20 // 1 MiB
+
+	// cssHomeKitInstructions is the CSS class for the HomeKit pairing hints.
+	cssHomeKitInstructions = "homekit-instructions"
 )
 
 // Server manages the web interface.
@@ -141,7 +144,8 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 	s.kraweb.Handle("/health", http.HandlerFunc(s.handleHealth))
 	s.kraweb.Handle("/static/app.js", http.HandlerFunc(s.handleStaticJS))
 
-	logger.Info("web server created",
+	logger.Info(
+		"web server created",
 		slog.String("addr", cfg.WebAddrPort().String()),
 		slog.String("bridge_name", cfg.BridgeName),
 	)
@@ -158,7 +162,8 @@ func (s *Server) Start() error {
 
 	// Start kraweb in background
 	go func() {
-		s.logger.Info("web interface",
+		s.logger.Info(
+			"web interface",
 			slog.String("addr", s.cfg.WebAddrPort().String()),
 			slog.String("tailscale_hostname", s.cfg.TailscaleHostname),
 		)
@@ -204,11 +209,20 @@ func (s *Server) updateState(event events.StateUpdateEvent) {
 	}
 	s.mu.Unlock()
 
-	s.logger.Debug("state updated",
+	s.logger.Debug(
+		"state updated",
 		slog.Float64("current_temp", event.CurrentTemperature),
 		slog.Float64("target_temp", event.TargetTemperature),
 		slog.Bool("heating", event.HeatingActive),
 	)
+}
+
+// writeBytes writes b to w, logging any error. HTTP response writes are
+// best-effort: a failure means the client went away, which is not actionable.
+func (s *Server) writeBytes(w http.ResponseWriter, b []byte) {
+	if _, err := w.Write(b); err != nil {
+		s.logger.Debug("failed to write HTTP response", slog.Any("error", err))
+	}
 }
 
 // handleIndex serves the main thermostat UI.
@@ -225,7 +239,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	html := s.renderThermostatUI(state)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(html))
+	s.writeBytes(w, []byte(html))
 }
 
 // handleSSE handles Server-Sent Events for real-time updates.
@@ -279,7 +293,10 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+				s.logger.Debug("sse write failed", slog.Any("error", err))
+				return
+			}
 			flusher.Flush()
 
 		case <-r.Context().Done():
@@ -318,18 +335,19 @@ func (s *Server) handleSetTemperature(w http.ResponseWriter, r *http.Request) {
 
 	// Publish command event
 	event := events.CommandEvent{
-		Source:            "web",
+		Source:            events.SourceWeb,
 		CommandType:       events.CommandTypeSetTemperature,
 		TargetTemperature: &temp,
 	}
 	s.bus.PublishCommand(s.client, event)
 
-	s.logger.Info("temperature changed via web",
+	s.logger.Info(
+		"temperature changed via web",
 		slog.Float64("temperature", temp),
 	)
 
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("OK"))
+	s.writeBytes(w, []byte("OK"))
 }
 
 // handleSetMode handles mode change requests via HTMX.
@@ -353,18 +371,19 @@ func (s *Server) handleSetMode(w http.ResponseWriter, r *http.Request) {
 
 	// Publish command event
 	event := events.CommandEvent{
-		Source:      "web",
+		Source:      events.SourceWeb,
 		CommandType: events.CommandTypeSetMode,
 		Mode:        &mode,
 	}
 	s.bus.PublishCommand(s.client, event)
 
-	s.logger.Info("mode changed via web",
+	s.logger.Info(
+		"mode changed via web",
 		slog.String("mode", mode),
 	)
 
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("OK"))
+	s.writeBytes(w, []byte("OK"))
 }
 
 // handleEventBusDebug shows EventBus statistics and recent events.
@@ -377,7 +396,7 @@ func (s *Server) handleEventBusDebug(w http.ResponseWriter, r *http.Request) {
 	html := s.renderEventBusDebug()
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(html))
+	s.writeBytes(w, []byte(html))
 }
 
 // handleHealth returns server health status.
@@ -389,7 +408,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(`{"status":"ok"}`))
+	s.writeBytes(w, []byte(`{"status":"ok"}`))
 }
 
 // handleStaticJS serves the embedded JavaScript file.
@@ -402,13 +421,13 @@ func (s *Server) handleStaticJS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(appJS))
+	s.writeBytes(w, []byte(appJS))
 }
 
 // publishConnectionStatus publishes a connection status event.
 func (s *Server) publishConnectionStatus(status events.ConnectionStatus, errMsg string) {
 	event := events.ConnectionStatusEvent{
-		Component: "web",
+		Component: events.SourceWeb,
 		Status:    status,
 		Error:     errMsg,
 	}
@@ -422,8 +441,10 @@ func (s *Server) handleQRCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	html := elem.Html(nil,
-		elem.Head(nil,
+	html := elem.Html(
+		nil,
+		elem.Head(
+			nil,
 			elem.Title(nil, elem.Text("HomeKit Setup QR Code")),
 			elem.Style(nil, elem.Text(`
 				body {
@@ -463,18 +484,23 @@ func (s *Server) handleQRCode(w http.ResponseWriter, r *http.Request) {
 				}
 			`)),
 		),
-		elem.Body(nil,
+		elem.Body(
+			nil,
 			elem.H1(nil, elem.Text("HomeKit Setup")),
-			elem.Div(attrs.Props{attrs.Class: "qr-container"},
+			elem.Div(
+				attrs.Props{attrs.Class: "qr-container"},
 				elem.H2(nil, elem.Text("Setup Code")),
-				elem.Div(attrs.Props{attrs.Class: "setup-code"},
+				elem.Div(
+					attrs.Props{attrs.Class: "setup-code"},
 					elem.Text(homekitqr.FormatPairingCode(s.cfg.HAPPin)),
 				),
-				elem.Div(attrs.Props{attrs.Class: "instructions"},
+				elem.Div(
+					attrs.Props{attrs.Class: "instructions"},
 					elem.P(nil, elem.Text("Scan this QR code with your iPhone's camera or Home app:")),
 				),
 				elem.Pre(nil, elem.Text(s.qrCode)),
-				elem.Div(attrs.Props{attrs.Class: "instructions"},
+				elem.Div(
+					attrs.Props{attrs.Class: "instructions"},
 					elem.P(nil, elem.Text("Or manually enter the setup code above in the Home app.")),
 				),
 			),
@@ -538,10 +564,14 @@ func (s *Server) renderThermostatUI(state *events.StateUpdateEvent) string {
 		containerChildren = append(containerChildren, banner)
 	}
 
-	containerChildren = append(containerChildren,
-		elem.Div(attrs.Props{attrs.Class: "status-card"},
-			elem.Div(attrs.Props{attrs.Class: "temp-display"},
-				elem.Div(attrs.Props{attrs.Class: "current-temp"},
+	containerChildren = append(
+		containerChildren,
+		elem.Div(
+			attrs.Props{attrs.Class: "status-card"},
+			elem.Div(
+				attrs.Props{attrs.Class: "temp-display"},
+				elem.Div(
+					attrs.Props{attrs.Class: "current-temp"},
 					elem.Span(attrs.Props{attrs.Class: "label"}, elem.Text("Current")),
 					elem.Span(attrs.Props{attrs.Class: "value", attrs.ID: "current-temp"}, elem.Text(currentTemp)),
 				),
@@ -549,12 +579,14 @@ func (s *Server) renderThermostatUI(state *events.StateUpdateEvent) string {
 			),
 		),
 
-		elem.Div(attrs.Props{attrs.Class: "control-card"},
+		elem.Div(
+			attrs.Props{attrs.Class: "control-card"},
 			elem.H2(nil, elem.Text("Target Temperature")),
-			elem.Form(attrs.Props{
-				"hx-post":   "/api/temperature",
-				"hx-target": "#response",
-			},
+			elem.Form(
+				attrs.Props{
+					"hx-post":   "/api/temperature",
+					"hx-target": "#response",
+				},
 				elem.Input(attrs.Props{
 					attrs.Type:   "range",
 					attrs.Name:   "temperature",
@@ -569,11 +601,13 @@ func (s *Server) renderThermostatUI(state *events.StateUpdateEvent) string {
 			),
 
 			elem.H2(nil, elem.Text("Mode")),
-			elem.Form(attrs.Props{
-				"hx-post":   "/api/mode",
-				"hx-target": "#response",
-			},
-				elem.Div(attrs.Props{attrs.Class: "mode-buttons"},
+			elem.Form(
+				attrs.Props{
+					"hx-post":   "/api/mode",
+					"hx-target": "#response",
+				},
+				elem.Div(
+					attrs.Props{attrs.Class: "mode-buttons"},
 					elem.Button(attrs.Props{
 						attrs.Type:  "submit",
 						attrs.Name:  "mode",
@@ -602,23 +636,28 @@ func (s *Server) renderThermostatUI(state *events.StateUpdateEvent) string {
 			elem.Div(attrs.Props{attrs.ID: "response"}),
 		),
 
-		elem.Div(attrs.Props{attrs.Class: "links"},
+		elem.Div(
+			attrs.Props{attrs.Class: "links"},
 			elem.A(attrs.Props{attrs.Href: "/debug/eventbus"}, elem.Text("EventBus Debug")),
 			elem.Text(" | "),
 			elem.A(attrs.Props{attrs.Href: "/metrics"}, elem.Text("Metrics")),
 		),
 	)
 
-	return elem.Html(nil,
-		elem.Head(nil,
+	return elem.Html(
+		nil,
+		elem.Head(
+			nil,
 			elem.Title(nil, elem.Text(s.thermostatTitle())),
 			elem.Meta(attrs.Props{attrs.Charset: "utf-8"}),
 			elem.Meta(attrs.Props{attrs.Name: "viewport", attrs.Content: "width=device-width, initial-scale=1"}),
 			elem.Script(attrs.Props{attrs.Src: "https://unpkg.com/htmx.org@1.9.10"}),
 			elem.Style(nil, elem.Text(s.getCSS())),
 		),
-		elem.Body(nil,
-			elem.Div(attrs.Props{attrs.Class: "container"},
+		elem.Body(
+			nil,
+			elem.Div(
+				attrs.Props{attrs.Class: "container"},
 				containerChildren...,
 			),
 
@@ -636,39 +675,50 @@ func (s *Server) renderHomekitBanner() elem.Node {
 	formattedPIN := homekitqr.FormatPairingCode(s.cfg.HAPPin)
 
 	var qrContent []elem.Node
-	qrContent = append(qrContent,
-		elem.Div(attrs.Props{attrs.Class: "homekit-pin"},
+	qrContent = append(
+		qrContent,
+		elem.Div(
+			attrs.Props{attrs.Class: "homekit-pin"},
 			elem.Span(attrs.Props{attrs.Class: "homekit-pin-label"}, elem.Text("Setup PIN")),
 			elem.Span(attrs.Props{attrs.Class: "homekit-pin-value"}, elem.Text(formattedPIN)),
 		),
 	)
 
 	if s.qrCode != "" {
-		qrContent = append(qrContent,
-			elem.Div(attrs.Props{attrs.Class: "qr-code-block"},
+		qrContent = append(
+			qrContent,
+			elem.Div(
+				attrs.Props{attrs.Class: "qr-code-block"},
 				elem.Pre(attrs.Props{attrs.Class: "qr-code"}, elem.Text(s.qrCode)),
 			),
-			elem.P(attrs.Props{attrs.Class: "homekit-instructions"},
+			elem.P(
+				attrs.Props{attrs.Class: cssHomeKitInstructions},
 				elem.Text("Scan the QR code from the Home app or camera on your iPhone/iPad."),
 			),
 		)
 	} else {
-		qrContent = append(qrContent,
-			elem.P(attrs.Props{attrs.Class: "homekit-instructions"},
+		qrContent = append(
+			qrContent,
+			elem.P(
+				attrs.Props{attrs.Class: cssHomeKitInstructions},
 				elem.Text("QR code is not available on this host. Use the setup PIN above."),
 			),
 		)
 	}
 
-	qrContent = append(qrContent,
-		elem.P(attrs.Props{attrs.Class: "homekit-instructions"},
-			elem.Text(fmt.Sprintf("Home app → Add Accessory → More Options → Select \"%s\".", s.accessoryDisplayName())),
+	qrContent = append(
+		qrContent,
+		elem.P(
+			attrs.Props{attrs.Class: cssHomeKitInstructions},
+			elem.Text(fmt.Sprintf("Home app → Add Accessory → More Options → Select %q.", s.accessoryDisplayName())),
 		),
 		elem.A(attrs.Props{attrs.Href: "/qrcode", attrs.Class: "homekit-link"}, elem.Text("Open standalone QR view")),
 	)
 
-	return elem.Details(attrs.Props{attrs.Class: "homekit-banner"},
-		elem.Summary(nil,
+	return elem.Details(
+		attrs.Props{attrs.Class: "homekit-banner"},
+		elem.Summary(
+			nil,
 			elem.Span(attrs.Props{attrs.Class: "homekit-summary-title"}, elem.Text("HomeKit Pairing")),
 			elem.Span(attrs.Props{attrs.Class: "homekit-summary-caption"}, elem.Text("Tap to reveal setup PIN & QR code")),
 		),
@@ -691,31 +741,39 @@ func (s *Server) renderEventBusDebug() string {
 		}
 	}
 
-	return elem.Html(nil,
-		elem.Head(nil,
+	return elem.Html(
+		nil,
+		elem.Head(
+			nil,
 			elem.Title(nil, elem.Text("EventBus Debug")),
 			elem.Meta(attrs.Props{attrs.Charset: "utf-8"}),
 			elem.Meta(attrs.Props{attrs.Name: "viewport", attrs.Content: "width=device-width, initial-scale=1"}),
 			elem.Style(nil, elem.Text(s.getCSS())),
 		),
-		elem.Body(nil,
-			elem.Div(attrs.Props{attrs.Class: "container"},
+		elem.Body(
+			nil,
+			elem.Div(
+				attrs.Props{attrs.Class: "container"},
 				elem.H1(nil, elem.Text("EventBus Debugger")),
 
-				elem.Div(attrs.Props{attrs.Class: "debug-card"},
+				elem.Div(
+					attrs.Props{attrs.Class: "debug-card"},
 					elem.H2(nil, elem.Text("Statistics")),
-					elem.Div(nil,
+					elem.Div(
+						nil,
 						elem.P(nil, elem.Text(fmt.Sprintf("Connected SSE Clients: %d", sseClientCount))),
 						elem.P(nil, elem.Text(fmt.Sprintf("Server Uptime: %s", time.Since(time.Now()).String()))),
 					),
 				),
 
-				elem.Div(attrs.Props{attrs.Class: "debug-card"},
+				elem.Div(
+					attrs.Props{attrs.Class: "debug-card"},
 					elem.H2(nil, elem.Text("Current State")),
 					elem.Pre(nil, elem.Text(stateJSON)),
 				),
 
-				elem.Div(attrs.Props{attrs.Class: "links"},
+				elem.Div(
+					attrs.Props{attrs.Class: "links"},
 					elem.A(attrs.Props{attrs.Href: "/"}, elem.Text("Back to Thermostat")),
 				),
 			),
