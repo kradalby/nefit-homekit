@@ -265,6 +265,17 @@ in
               SyslogIdentifier = "nefit-homekit";
 
               UMask = "0077";
+
+              # Sandboxing. Kept conservative so Tailscale networking keeps
+              # working; the service only writes under its data dir.
+              ProtectSystem = "strict";
+              ProtectHome = true;
+              PrivateTmp = true;
+              NoNewPrivileges = true;
+              ProtectControlGroups = true;
+              ProtectKernelModules = true;
+              ProtectKernelTunables = true;
+              ReadWritePaths = [ cfg.dataDir ];
             }
             // (optionalAttrs dataDirUnderVarLib {
               StateDirectory = dataDirName;

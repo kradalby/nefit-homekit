@@ -11,14 +11,16 @@ pkgs.testers.runNixOSTest {
     withEnvFile = { config, pkgs, ... }: {
       imports = [ self.nixosModules.default ];
 
-      # Create a test environment file
+      # Create a test environment file holding the (required) secrets. These
+      # are NOT set by the module, so the service only starts if the file is
+      # loaded — that is what this node verifies. Ports are owned by the module
+      # options below: systemd `Environment=` (from the module) always wins over
+      # `EnvironmentFile=`, so port overrides belong in `ports`, not the file.
       environment.etc."nefit-homekit/test.env" = {
         text = ''
           NEFITHK_NEFIT_SERIAL=serial-from-file
           NEFITHK_NEFIT_ACCESS_KEY=key-from-file
           NEFITHK_NEFIT_PASSWORD=password-from-file
-          NEFITHK_WEB_PORT=9090
-          NEFITHK_HAP_PORT=54321
         '';
         mode = "0600";
         user = "nefit-homekit";
@@ -28,6 +30,12 @@ pkgs.testers.runNixOSTest {
         enable = true;
         package = self.packages.${system}.default;
         environmentFile = "/etc/nefit-homekit/test.env";
+
+        # Custom ports via the module options (exercised by the test below).
+        ports = {
+          web = 9090;
+          hap = 54321;
+        };
 
         # Additional env vars that override or supplement the file
         environment = {
