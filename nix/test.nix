@@ -4,7 +4,11 @@
 # Run with: nix build .#checks.x86_64-linux.module-test
 # or: nix-build -A checks.x86_64-linux.module-test
 
-{ pkgs, system, self }:
+{
+  pkgs,
+  system,
+  self,
+}:
 
 pkgs.testers.runNixOSTest {
   name = "nefit-homekit-module";

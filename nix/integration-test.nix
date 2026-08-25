@@ -1,7 +1,11 @@
 # Integration test that validates environment file loading
 # and tests multiple configuration scenarios
 
-{ pkgs, system, self }:
+{
+  pkgs,
+  system,
+  self,
+}:
 
 pkgs.testers.runNixOSTest {
   name = "nefit-homekit-integration";
