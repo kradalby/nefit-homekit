@@ -223,7 +223,7 @@ func TestConcurrentPublish(t *testing.T) {
 	defer sub.Close()
 
 	// Publish events concurrently
-	for i := 0; i < numEvents; i++ {
+	for i := range numEvents {
 		go func(i int) {
 			event := StateUpdateEvent{
 				Timestamp:          time.Now(),
