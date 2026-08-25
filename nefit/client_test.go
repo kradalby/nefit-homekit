@@ -2,15 +2,17 @@ package nefit
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/kradalby/nefit-go/types"
+	"tailscale.com/util/eventbus"
+
 	"github.com/kradalby/nefit-homekit/config"
 	"github.com/kradalby/nefit-homekit/events"
-	"tailscale.com/util/eventbus"
 )
 
 func testLogger() *slog.Logger {
@@ -51,6 +53,8 @@ func newTestClient(t *testing.T) (*Client, *events.Bus, func()) {
 		cancel: func() {},
 	}
 
+	client.refreshStatus = func(bool) error { return nil }
+
 	cleanup := func() {
 		_ = bus.Close()
 	}
@@ -69,10 +73,13 @@ func TestPublishStateUpdate(t *testing.T) {
 	sub := eventbus.Subscribe[events.StateUpdateEvent](webClient)
 	defer sub.Close()
 
+	// "central heating" is what nefit-go's client.Status actually yields for a
+	// firing boiler; it translates the raw "CH" wire value. Asserting on the
+	// raw form here is what hid a permanently-false HeatingActive.
 	status := types.Status{
 		InHouseTemp:     21.5,
 		TempSetpoint:    22.0,
-		BoilerIndicator: "CH",
+		BoilerIndicator: "central heating",
 		UserMode:        nefitModeManual,
 	}
 
@@ -94,7 +101,7 @@ func TestPublishStateUpdate(t *testing.T) {
 	}
 }
 
-func TestHandleNefitEventPublishesStatus(t *testing.T) {
+func TestHeatingActiveAcceptsBothBoilerSpellings(t *testing.T) {
 	client, bus, cleanup := newTestClient(t)
 	defer cleanup()
 
@@ -102,30 +109,78 @@ func TestHandleNefitEventPublishesStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bus.Client(web) error = %v", err)
 	}
-
 	sub := eventbus.Subscribe[events.StateUpdateEvent](webClient)
 	defer sub.Close()
 
-	payload := map[string]interface{}{
-		"in_house_temp":    19.0,
-		"temp_setpoint":    17.5,
-		"boiler_indicator": "off",
-		"user_mode":        nefitModeClock,
+	for _, tc := range []struct {
+		indicator string
+		want      bool
+	}{
+		{"central heating", true},
+		{"hot water", true},
+		{"CH", true},
+		{"HW", true},
+		{"off", false},
+		{"No", false},
+	} {
+		client.publishStateUpdate(types.Status{
+			BoilerIndicator: tc.indicator,
+			UserMode:        nefitModeManual,
+			InHouseTemp:     20,
+		}, true)
+
+		select {
+		case evt := <-sub.Events():
+			if evt.HeatingActive != tc.want {
+				t.Errorf("BoilerIndicator %q: HeatingActive = %v, want %v",
+					tc.indicator, evt.HeatingActive, tc.want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("BoilerIndicator %q: timed out waiting for event", tc.indicator)
+		}
+	}
+}
+
+// A status push carries the device's abbreviated wire keys and may be partial,
+// so the handler must re-read the full status through nefit-go rather than
+// decode the payload itself. Before nefit-go started populating URI, this
+// branch was unreachable and the mis-keyed decode it used to do went unnoticed.
+func TestHandleNefitEventRefreshesStatus(t *testing.T) {
+	client, _, cleanup := newTestClient(t)
+	defer cleanup()
+
+	calls := 0
+	client.refreshStatus = func(force bool) error {
+		if force {
+			t.Errorf("refreshStatus force = true, want false")
+		}
+		calls++
+		return nil
 	}
 
-	client.handleNefitEvent(types.URIStatus, payload)
-
-	select {
-	case evt := <-sub.Events():
-		if evt.Mode != "off" {
-			t.Fatalf("mode = %s, want off", evt.Mode)
-		}
-		if evt.HeatingActive {
-			t.Fatalf("expected heating inactive")
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for event")
+	// The raw device payload: abbreviated keys, nested under "value".
+	client.handleNefitEvent(types.URIStatus, map[string]any{
+		"id":    types.URIStatus,
+		"value": map[string]any{"IHT": 19.0, "TSP": 17.5, "BAI": "No", "UMD": nefitModeClock},
+	})
+	if calls != 1 {
+		t.Fatalf("status push triggered %d refreshes, want 1", calls)
 	}
+
+	client.handleNefitEvent(types.URIOutdoorTemp, map[string]any{"id": types.URIOutdoorTemp})
+	if calls != 1 {
+		t.Fatalf("non-status push triggered a refresh, total = %d, want 1", calls)
+	}
+}
+
+func TestHandleNefitEventLogsRefreshFailure(t *testing.T) {
+	client, _, cleanup := newTestClient(t)
+	defer cleanup()
+
+	client.refreshStatus = func(bool) error { return errors.New("backend down") }
+
+	// Must not panic or propagate; the poll loop is the backstop.
+	client.handleNefitEvent(types.URIStatus, nil)
 }
 
 func TestPublishConnectionStatus(t *testing.T) {

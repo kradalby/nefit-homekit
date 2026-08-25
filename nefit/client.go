@@ -5,14 +5,16 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
 	nefitclient "github.com/kradalby/nefit-go/client"
 	"github.com/kradalby/nefit-go/types"
+	"tailscale.com/util/eventbus"
+
 	"github.com/kradalby/nefit-homekit/config"
 	"github.com/kradalby/nefit-homekit/events"
-	"tailscale.com/util/eventbus"
 )
 
 const (
@@ -23,6 +25,14 @@ const (
 
 	commandDebounceInterval = 500 * time.Millisecond
 )
+
+// heatingBoilerStates are the types.Status.BoilerIndicator values that mean the
+// boiler is firing. nefit-go's client.Status runs the raw BAI wire value
+// through parseBoilerIndicator ("CH" -> "central heating", "HW" -> "hot
+// water"), while its types.Status doc comment still documents the raw form.
+// Accept both spellings so an upstream realignment either way cannot silently
+// pin HeatingActive to false.
+var heatingBoilerStates = []string{"central heating", "hot water", "CH", "HW"}
 
 // Client manages the persistent connection to the Nefit Easy thermostat.
 type Client struct {
@@ -36,6 +46,11 @@ type Client struct {
 	reconnectNum int
 	stateMu      sync.RWMutex
 	lastEvent    *events.StateUpdateEvent
+
+	// refreshStatus re-reads the full status from the backend and publishes it.
+	// A field rather than a direct call so tests can observe that a push
+	// notification triggers a refresh without a live backend connection.
+	refreshStatus func(force bool) error
 }
 
 // New creates a new Nefit client.
@@ -81,6 +96,7 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Client, err
 		ctx:         ctx,
 		cancel:      cancel,
 	}
+	c.refreshStatus = c.fetchAndPublishStatus
 
 	logger.Info(
 		"nefit client created",
@@ -204,37 +220,35 @@ func (c *Client) fetchAndPublishStatus(force bool) error {
 }
 
 // handleNefitEvent is called when the Nefit backend sends a push notification.
-func (c *Client) handleNefitEvent(uri string, data interface{}) {
+//
+// A push carries the raw device representation ({"id": ..., "value": {"IHT":
+// ..., "TSP": ..., "BAI": ...}}) using the backend's abbreviated keys, and may
+// be a partial view of the resource. Rather than decode that wire format a
+// second time here, a status push is treated purely as an invalidation signal
+// and the full status is re-read through nefit-go's own parser, which owns the
+// key mapping and the value translations.
+func (c *Client) handleNefitEvent(uri string, _ any) {
 	c.logger.Debug(
 		"received nefit event",
 		slog.String("uri", uri),
 	)
 
-	// For status updates, publish to eventbus
-	if uri == types.URIStatus {
-		if raw, ok := data.(map[string]interface{}); ok {
-			status := types.Status{}
-			if in, ok := raw["in_house_temp"].(float64); ok {
-				status.InHouseTemp = in
-			}
-			if sp, ok := raw["temp_setpoint"].(float64); ok {
-				status.TempSetpoint = sp
-			}
-			if boiler, ok := raw["boiler_indicator"].(string); ok {
-				status.BoilerIndicator = boiler
-			}
-			if mode, ok := raw["user_mode"].(string); ok {
-				status.UserMode = mode
-			}
-			c.publishStateUpdate(status, false)
-		}
+	if uri != types.URIStatus {
+		return
+	}
+
+	if err := c.refreshStatus(false); err != nil {
+		c.logger.Warn(
+			"failed to refresh status after push notification",
+			slog.Any("error", err),
+		)
 	}
 }
 
 // publishStateUpdate converts Nefit status to our event format and publishes it.
 func (c *Client) publishStateUpdate(status types.Status, force bool) {
 	// Determine if heating is active
-	heatingActive := status.BoilerIndicator == "CH" || status.BoilerIndicator == "HW"
+	heatingActive := slices.Contains(heatingBoilerStates, status.BoilerIndicator)
 
 	// Determine mode
 	mode := modeHeat
@@ -293,12 +307,11 @@ func (c *Client) handleCommands() {
 			return
 		}
 
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
-			}
-		}
+		// Go 1.23 made timer channels unbuffered, so Stop/Reset can no longer
+		// leave a stale tick behind and the old drain dance is dead code. Go
+		// 1.27 removed the asynctimerchan escape hatch that could have
+		// restored the buffered behavior, and this repo sets no GODEBUG.
+		timer.Stop()
 		timer.Reset(commandDebounceInterval)
 	}
 
@@ -307,12 +320,7 @@ func (c *Client) handleCommands() {
 			return
 		}
 
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
-			}
-		}
+		timer.Stop()
 		timer = nil
 		timerC = nil
 	}
