@@ -18,9 +18,10 @@ import (
 	"github.com/chasefleming/elem-go/attrs"
 	homekitqr "github.com/kradalby/homekit-qr"
 	"github.com/kradalby/kra/web"
+	"tailscale.com/util/eventbus"
+
 	"github.com/kradalby/nefit-homekit/config"
 	"github.com/kradalby/nefit-homekit/events"
-	"tailscale.com/util/eventbus"
 )
 
 //go:embed static/app.js
@@ -49,6 +50,10 @@ type Server struct {
 	cancel  context.CancelFunc
 	qrCode  string
 	setupID string
+
+	// startedAt is when the server was constructed, for the debug page's
+	// uptime readout.
+	startedAt time.Time
 
 	// Current state for SSE clients
 	mu           sync.RWMutex
@@ -79,11 +84,9 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 
 	// Generate QR code
 	qrConfig := homekitqr.QRCodeConfig{
-		SetupURIConfig: homekitqr.SetupURIConfig{
-			PairingCode: cfg.HAPPin,
-			SetupID:     cfg.NefitSerial,
-			Category:    homekitqr.CategoryThermostat,
-		},
+		PairingCode: cfg.HAPPin,
+		SetupID:     cfg.NefitSerial,
+		Category:    homekitqr.CategoryThermostat,
 	}
 	qrCodeStr, err := homekitqr.GenerateQRTerminal(qrConfig)
 	if err != nil {
@@ -131,6 +134,7 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 		cancel:     cancel,
 		qrCode:     qrCodeStr,
 		setupID:    cfg.NefitSerial,
+		startedAt:  time.Now(),
 		sseClients: make(map[chan events.StateUpdateEvent]struct{}),
 	}
 
@@ -762,7 +766,7 @@ func (s *Server) renderEventBusDebug() string {
 					elem.Div(
 						nil,
 						elem.P(nil, elem.Text(fmt.Sprintf("Connected SSE Clients: %d", sseClientCount))),
-						elem.P(nil, elem.Text(fmt.Sprintf("Server Uptime: %s", time.Since(time.Now()).String()))),
+						elem.P(nil, elem.Text(fmt.Sprintf("Server Uptime: %s", time.Since(s.startedAt).String()))),
 					),
 				),
 
