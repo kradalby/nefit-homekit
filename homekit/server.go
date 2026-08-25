@@ -11,9 +11,10 @@ import (
 	"github.com/brutella/hap"
 	"github.com/brutella/hap/accessory"
 	homekitqr "github.com/kradalby/homekit-qr"
+	"tailscale.com/util/eventbus"
+
 	"github.com/kradalby/nefit-homekit/config"
 	"github.com/kradalby/nefit-homekit/events"
-	"tailscale.com/util/eventbus"
 )
 
 const (
@@ -138,11 +139,9 @@ func (s *Server) Start() error {
 // printSetupQRCode generates and prints the HomeKit setup QR code to stdout.
 func (s *Server) printSetupQRCode() {
 	qrConfig := homekitqr.QRCodeConfig{
-		SetupURIConfig: homekitqr.SetupURIConfig{
-			PairingCode: s.cfg.HAPPin,
-			SetupID:     s.cfg.NefitSerial, // Use serial as setup ID
-			Category:    homekitqr.CategoryThermostat,
-		},
+		PairingCode: s.cfg.HAPPin,
+		SetupID:     s.cfg.NefitSerial, // Use serial as setup ID
+		Category:    homekitqr.CategoryThermostat,
 	}
 
 	qrCode, err := homekitqr.GenerateQRTerminal(qrConfig)
