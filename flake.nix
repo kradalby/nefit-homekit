@@ -12,18 +12,37 @@
     flake-utils.lib.eachDefaultSystem
       (system:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
+          pkgs = import nixpkgs {
+            inherit system;
+            overlays = [
+              (_: prev: {
+                # goimports/gofumpt ship wrapped with a `go` on PATH. That `go`
+                # must be at least the go.mod directive, or GOTOOLCHAIN=auto
+                # tries to fetch a toolchain from inside the network-less
+                # treefmt sandbox. golangci-lint already tracks go_latest
+                # upstream, so it needs no override.
+                gotools = prev.gotools.override {
+                  buildGoModule = prev.buildGoLatestModule;
+                  go = prev.go_latest;
+                };
+                # gofumpt takes no `go` argument; buildGoModule carries it.
+                gofumpt = prev.gofumpt.override {
+                  buildGoModule = prev.buildGoLatestModule;
+                };
+              })
+            ];
+          };
           fc = flake-checks.lib;
 
-          # Go version - use 1.26.x (required for tailscale v1.96.x)
-          go = pkgs.go_1_26;
+          # Go version - track the latest release (go.mod says 1.27.0).
+          go = pkgs.go_latest;
 
           common = {
             inherit pkgs;
             root = ./.;
             pname = "nefit-homekit";
             version = "0.1.0";
-            vendorHash = "sha256-CYJAyce18Xv8MxqDHBhecAKrFDGZXTAfB5h7aZONqog=";
+            vendorHash = "sha256-7BNHHdNmUQdZw9m6HurRAjYgh/HEECfovG/L82hnLu0=";
             goPkg = go;
             # web/server.go embeds web/static/app.js.
             embedDirs = [ (./. + "/web/static") ];
