@@ -66,7 +66,7 @@
             entr # file watcher for auto-testing
             git
             prek # pre-commit hooks
-            nixpkgs-fmt # Nix formatter
+            nixfmt # Nix formatter (RFC 166)
             prettier
           ];
         };
