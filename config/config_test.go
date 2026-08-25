@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -10,6 +11,9 @@ const (
 	testBridgeName   = "custom-bridge"
 	testTailnetName  = "custom-tailnet"
 	defaultBridgeVal = "nefit-homekit"
+
+	// envPrefix is the prefix every NEFITHK_* setting shares.
+	envPrefix = "NEFITHK_"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -151,7 +155,7 @@ func TestLoadConfig(t *testing.T) {
 					t.Errorf("Load() expected error containing %q, got nil", tt.errMsg)
 					return
 				}
-				if tt.errMsg != "" && !contains(err.Error(), tt.errMsg) {
+				if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
 					t.Errorf("Load() error = %v, want error containing %q", err, tt.errMsg)
 				}
 				return
@@ -331,7 +335,7 @@ func TestValidate_XMPPTimings(t *testing.T) {
 					t.Errorf("Validate() expected error containing %q, got nil", tt.errMsg)
 					return
 				}
-				if !contains(err.Error(), tt.errMsg) {
+				if !strings.Contains(err.Error(), tt.errMsg) {
 					t.Errorf("Validate() error = %v, want error containing %q", err, tt.errMsg)
 				}
 				return
@@ -348,43 +352,11 @@ func TestValidate_XMPPTimings(t *testing.T) {
 func clearEnv(t *testing.T) {
 	t.Helper()
 	for _, env := range os.Environ() {
-		if len(env) > 14 && env[:14] == "NEFITHK_" {
-			key := env[:indexByte(env, '=')]
+		key, _, ok := strings.Cut(env, "=")
+		if ok && strings.HasPrefix(key, envPrefix) {
 			if err := os.Unsetenv(key); err != nil {
 				t.Fatalf("failed to unset env var %s: %v", key, err)
 			}
 		}
 	}
-}
-
-// contains checks if a string contains a substring.
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && indexString(s, substr) >= 0
-}
-
-// indexByte returns the index of the first instance of c in s, or -1 if c is not present.
-func indexByte(s string, c byte) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] == c {
-			return i
-		}
-	}
-	return -1
-}
-
-// indexString returns the index of the first instance of substr in s, or -1 if substr is not present.
-func indexString(s, substr string) int {
-	n := len(substr)
-	if n == 0 {
-		return 0
-	}
-	if n > len(s) {
-		return -1
-	}
-	for i := 0; i <= len(s)-n; i++ {
-		if s[i:i+n] == substr {
-			return i
-		}
-	}
-	return -1
 }
