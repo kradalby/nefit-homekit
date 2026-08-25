@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"tailscale.com/util/eventbus"
+
 	"github.com/kradalby/nefit-homekit/config"
 	"github.com/kradalby/nefit-homekit/events"
-	"tailscale.com/util/eventbus"
 )
 
 func testLogger() *slog.Logger {

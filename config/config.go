@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Netflix/go-env"
+
 	"github.com/kradalby/nefit-homekit/logging"
 )
 
