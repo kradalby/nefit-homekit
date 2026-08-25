@@ -7,8 +7,8 @@ require (
 	github.com/brutella/hap v0.0.35
 	github.com/chasefleming/elem-go v0.36.0
 	github.com/kradalby/homekit-qr v0.0.0-20251117145710-0ea350a04eaa
-	github.com/kradalby/kra v0.0.0-20260825155642-44bd77913307
-	github.com/kradalby/nefit-go v0.0.0-20260825154617-d7ed8e24b10d
+	github.com/kradalby/kra v0.0.0-20260825193819-f96ca865dd41
+	github.com/kradalby/nefit-go v0.0.0-20260825193823-e73d55819623
 	tailscale.com v1.102.3
 )
 
