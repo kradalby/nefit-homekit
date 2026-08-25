@@ -1,4 +1,9 @@
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 with lib;
 
@@ -156,19 +161,25 @@ in
 
     log = {
       level = mkOption {
-        type = types.enum [ "debug" "info" "warn" "error" ];
+        type = types.enum [
+          "debug"
+          "info"
+          "warn"
+          "error"
+        ];
         default = "info";
         description = "Logging level for the service.";
       };
 
       format = mkOption {
-        type = types.enum [ "json" "console" ];
+        type = types.enum [
+          "json"
+          "console"
+        ];
         default = "json";
         description = "Logging format (json or console).";
       };
     };
-
-
 
     openFirewall = mkOption {
       type = types.bool;
@@ -214,12 +225,12 @@ in
             NEFITHK_BRIDGE_NAME = cfg.bridgeName;
             NEFITHK_TAILSCALE_HOSTNAME = tailscaleHostname;
             NEFITHK_TAILSCALE_STATE_DIR = tailscaleDir;
-          } // cfg.environment;
+          }
+          // cfg.environment;
 
-          tailscaleExport =
-            lib.optionalString (cfg.tailscale.authKeyFile != null) ''
-              export NEFITHK_TAILSCALE_AUTHKEY="$(cat "$CREDENTIALS_DIRECTORY/tailscale-authkey")"
-            '';
+          tailscaleExport = lib.optionalString (cfg.tailscale.authKeyFile != null) ''
+            export NEFITHK_TAILSCALE_AUTHKEY="$(cat "$CREDENTIALS_DIRECTORY/tailscale-authkey")"
+          '';
 
           startScript = pkgs.writeShellScript "nefit-homekit-start" ''
             set -euo pipefail
@@ -242,51 +253,50 @@ in
 
           environment = envVars;
 
-          serviceConfig =
-            {
-              Type = "simple";
-              ExecStart = startScript;
-              User = cfg.user;
-              Group = cfg.group;
+          serviceConfig = {
+            Type = "simple";
+            ExecStart = startScript;
+            User = cfg.user;
+            Group = cfg.group;
 
-              Restart = "on-failure";
-              RestartSec = "10s";
-              RestartPreventExitStatus = [ 1 ];
+            Restart = "on-failure";
+            RestartSec = "10s";
+            RestartPreventExitStatus = [ 1 ];
 
-              TimeoutStartSec = "60s";
-              TimeoutStopSec = "30s";
+            TimeoutStartSec = "60s";
+            TimeoutStopSec = "30s";
 
-              WorkingDirectory = cfg.dataDir;
-              CacheDirectory = "nefit-homekit";
-              RuntimeDirectory = "nefit-homekit";
+            WorkingDirectory = cfg.dataDir;
+            CacheDirectory = "nefit-homekit";
+            RuntimeDirectory = "nefit-homekit";
 
-              StandardOutput = "journal";
-              StandardError = "journal";
-              SyslogIdentifier = "nefit-homekit";
+            StandardOutput = "journal";
+            StandardError = "journal";
+            SyslogIdentifier = "nefit-homekit";
 
-              UMask = "0077";
+            UMask = "0077";
 
-              # Sandboxing. Kept conservative so Tailscale networking keeps
-              # working; the service only writes under its data dir.
-              ProtectSystem = "strict";
-              ProtectHome = true;
-              PrivateTmp = true;
-              NoNewPrivileges = true;
-              ProtectControlGroups = true;
-              ProtectKernelModules = true;
-              ProtectKernelTunables = true;
-              ReadWritePaths = [ cfg.dataDir ];
-            }
-            // (optionalAttrs dataDirUnderVarLib {
-              StateDirectory = dataDirName;
-              StateDirectoryMode = "0700";
-            })
-            // (optionalAttrs (cfg.environmentFile != null) {
-              EnvironmentFile = cfg.environmentFile;
-            })
-            // (optionalAttrs (cfg.tailscale.authKeyFile != null) {
-              LoadCredential = "tailscale-authkey:${cfg.tailscale.authKeyFile}";
-            });
+            # Sandboxing. Kept conservative so Tailscale networking keeps
+            # working; the service only writes under its data dir.
+            ProtectSystem = "strict";
+            ProtectHome = true;
+            PrivateTmp = true;
+            NoNewPrivileges = true;
+            ProtectControlGroups = true;
+            ProtectKernelModules = true;
+            ProtectKernelTunables = true;
+            ReadWritePaths = [ cfg.dataDir ];
+          }
+          // (optionalAttrs dataDirUnderVarLib {
+            StateDirectory = dataDirName;
+            StateDirectoryMode = "0700";
+          })
+          // (optionalAttrs (cfg.environmentFile != null) {
+            EnvironmentFile = cfg.environmentFile;
+          })
+          // (optionalAttrs (cfg.tailscale.authKeyFile != null) {
+            LoadCredential = "tailscale-authkey:${cfg.tailscale.authKeyFile}";
+          });
         };
 
       systemd.tmpfiles.rules = [
