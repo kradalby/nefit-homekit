@@ -77,6 +77,7 @@
         apps = {
           test = {
             type = "app";
+            meta.description = "Run tests with coverage summary";
             program = toString (
               pkgs.writeShellScript "test" ''
                 set -e
@@ -88,6 +89,7 @@
 
           lint = {
             type = "app";
+            meta.description = "Run golangci-lint";
             program = toString (
               pkgs.writeShellScript "lint" ''
                 set -e
@@ -99,6 +101,7 @@
 
           test-race = {
             type = "app";
+            meta.description = "Run tests with the race detector";
             program = toString (
               pkgs.writeShellScript "test-race" ''
                 set -e
@@ -111,6 +114,7 @@
 
           coverage = {
             type = "app";
+            meta.description = "Generate HTML coverage report";
             program = toString (
               pkgs.writeShellScript "coverage" ''
                 set -e
