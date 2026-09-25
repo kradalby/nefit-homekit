@@ -46,7 +46,7 @@ Jobs:
 All workflows use:
 
 - **Official Nix Installer** (`NixOS/nix-installer-action`) - installs Nix in CI
-- **hestia** (`Mic92/hestia/action`) - GitHub Actions cache integration for the Nix store
+- **hestia** (`Mic92/hestia`) - GitHub Actions cache integration for the Nix store
 
 A workflow-level default shell (`nix develop --command bash`) runs every step
 inside the flake devShell, so tools are available without a per-step prefix.
@@ -76,7 +76,7 @@ nix flake check
 
 ## Caching Strategy
 
-Workflows use **hestia** (`Mic92/hestia/action`) to cache the Nix store:
+Workflows use **hestia** (`Mic92/hestia`) to cache the Nix store:
 
 - Integrates with the GitHub Actions cache
 - No configuration needed
