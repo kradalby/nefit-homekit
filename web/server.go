@@ -324,7 +324,10 @@ func (s *Server) handleSetTemperature(w http.ResponseWriter, r *http.Request) {
 		CommandType:       events.CommandTypeSetTemperature,
 		TargetTemperature: &temp,
 	}
-	s.bus.PublishCommand(s.client, event)
+	if err := s.bus.PublishCommand(s.client, event); err != nil {
+		http.Error(w, "Shutting down", http.StatusServiceUnavailable)
+		return
+	}
 
 	s.logger.Info(
 		"temperature changed via web",
@@ -360,7 +363,10 @@ func (s *Server) handleSetMode(w http.ResponseWriter, r *http.Request) {
 		CommandType: events.CommandTypeSetMode,
 		Mode:        &mode,
 	}
-	s.bus.PublishCommand(s.client, event)
+	if err := s.bus.PublishCommand(s.client, event); err != nil {
+		http.Error(w, "Shutting down", http.StatusServiceUnavailable)
+		return
+	}
 
 	s.logger.Info(
 		"mode changed via web",

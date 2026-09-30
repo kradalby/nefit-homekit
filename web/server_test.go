@@ -498,6 +498,51 @@ func TestStartThenCloseAtOnce(t *testing.T) {
 	})
 }
 
+// Neither kraweb nor net/http waits out handlers on shutdown, so a command
+// still reading its body can publish after the bus has closed.
+func TestCommandInFlightThroughShutdown(t *testing.T) {
+	for _, tt := range []struct {
+		path    string
+		handler func(*Server, http.ResponseWriter, *http.Request)
+		body    string
+	}{
+		{"/api/mode", (*Server).handleSetMode, "mode=heat"},
+		{"/api/temperature", (*Server).handleSetTemperature, "temperature=21"},
+	} {
+		t.Run(tt.path, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				server, bus := newBubbleServer(t)
+				if err := server.Start(); err != nil {
+					t.Fatal(err)
+				}
+
+				body, send := io.Pipe()
+				req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, tt.path, body)
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				w := httptest.NewRecorder()
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					tt.handler(server, w, req)
+				}()
+				synctest.Wait()
+
+				_ = server.Close()
+				_ = bus.Close()
+
+				go func() {
+					_, _ = io.WriteString(send, tt.body)
+					_ = send.Close()
+				}()
+				<-done
+				if w.Code != http.StatusServiceUnavailable {
+					t.Errorf("status = %d, want %d", w.Code, http.StatusServiceUnavailable)
+				}
+			})
+		})
+	}
+}
+
 func TestHandleSSE(t *testing.T) {
 	logger := testLogger()
 	bus, err := events.New(logger)

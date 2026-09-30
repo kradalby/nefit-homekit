@@ -133,10 +133,10 @@ func (s *Server) Start() error {
 	// Generate and print QR code
 	s.printSetupQRCode()
 
-	s.wg.Go(s.handleStateUpdates)
-
-	// Setup accessory callbacks for user interactions
+	// Before the state handler: hap's SetValue reads the callback unlocked.
 	s.setupAccessoryCallbacks()
+
+	s.wg.Go(s.handleStateUpdates)
 
 	// Start HAP server in background
 	go func() {
@@ -179,10 +179,12 @@ func (s *Server) printSetupQRCode() {
 	fmt.Printf("%s\n\n", separator)
 }
 
-// setupAccessoryCallbacks sets up callbacks for user interactions.
+// setupAccessoryCallbacks sets up callbacks for user interactions. They run
+// before hap stores the value, so a command the bus refuses is refused to the
+// controller too.
 func (s *Server) setupAccessoryCallbacks() {
 	// Target temperature changed
-	s.accessory.Thermostat.TargetTemperature.OnValueRemoteUpdate(func(temp float64) {
+	s.accessory.Thermostat.TargetTemperature.OnSetRemoteValue(func(temp float64) error {
 		s.logger.Info(
 			"target temperature changed via HomeKit",
 			slog.Float64("temperature", temp),
@@ -194,11 +196,11 @@ func (s *Server) setupAccessoryCallbacks() {
 			CommandType:       events.CommandTypeSetTemperature,
 			TargetTemperature: &temp,
 		}
-		s.bus.PublishCommand(s.client, event)
+		return s.bus.PublishCommand(s.client, event)
 	})
 
 	// Target heating cooling state changed
-	s.accessory.Thermostat.TargetHeatingCoolingState.OnValueRemoteUpdate(func(state int) {
+	s.accessory.Thermostat.TargetHeatingCoolingState.OnSetRemoteValue(func(state int) error {
 		s.logger.Info(
 			"heating mode changed via HomeKit",
 			slog.Int("state", state),
@@ -212,11 +214,10 @@ func (s *Server) setupAccessoryCallbacks() {
 		case characteristic.TargetHeatingCoolingStateHeat:
 			mode = modeHeat
 		default:
-			s.logger.Warn("unknown heating state", slog.Int("state", state))
-			return
+			return fmt.Errorf("unknown heating state %d", state)
 		}
 
-		s.bus.PublishCommand(s.client, events.CommandEvent{
+		return s.bus.PublishCommand(s.client, events.CommandEvent{
 			Source:      events.SourceHomeKit,
 			CommandType: events.CommandTypeSetMode,
 			Mode:        &mode,
