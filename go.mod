@@ -8,7 +8,7 @@ require (
 	github.com/chasefleming/elem-go v0.36.0
 	github.com/kradalby/homekit-qr v0.0.0-20251117145710-0ea350a04eaa
 	github.com/kradalby/kra v0.0.0-20260925084146-404be82c1776
-	github.com/kradalby/nefit-go v0.0.0-20260925084928-0259c4f98d27
+	github.com/kradalby/nefit-go v0.0.0-20260930190505-32cebf896ae2
 	tailscale.com v1.102.5
 )
 
