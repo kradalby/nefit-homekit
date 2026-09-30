@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -40,6 +41,7 @@ var heatingBoilerStates = []string{"central heating", "hot water", "CH", "HW"}
 // substitute a fake for the XMPP connection.
 type backend interface {
 	Connect(ctx context.Context) error
+	Done() <-chan struct{}
 	Close() error
 	Subscribe(handler nefitclient.EventHandler)
 	Status(ctx context.Context, includeOutdoorTemp bool) (*types.Status, error)
@@ -135,25 +137,21 @@ func (c *Client) Start() error {
 	sub := eventbus.Subscribe[events.CommandEvent](c.client)
 	c.wg.Go(func() { c.handleCommands(sub) })
 
+	c.wg.Go(c.refreshLoop)
 	c.wg.Go(c.connectWithRetry)
 
 	c.logger.Info("nefit client started successfully")
 	return nil
 }
 
-// connectWithRetry attempts to connect to the Nefit backend with exponential backoff.
+// connectWithRetry keeps a session with the Nefit backend open until Close and
+// publishes its status. Requests reconnect on their own; pushes only arrive
+// while a session is up.
 func (c *Client) connectWithRetry() {
 	backoff := c.cfg.XMPPReconnectBackoff
 	failures := 0
 
 	for {
-		select {
-		case <-c.ctx.Done():
-			c.logger.Info("stopping connection attempts")
-			return
-		default:
-		}
-
 		c.logger.Info(
 			"attempting to connect to nefit backend",
 			slog.Int("attempt", failures+1),
@@ -162,15 +160,21 @@ func (c *Client) connectWithRetry() {
 		c.publishConnectionStatus(events.ConnectionStatusConnecting, "", failures)
 
 		err := c.nefitClient.Connect(c.ctx)
-		if err == nil {
-			c.logger.Info("connected to nefit backend")
-			c.publishConnectionStatus(events.ConnectionStatusConnected, "", failures)
-
-			c.wg.Go(c.refreshLoop)
-
-			// Wait for connection to close or context to be canceled
-			<-c.ctx.Done()
+		if c.ctx.Err() != nil {
 			return
+		}
+		if err == nil {
+			lasted := c.holdSession(failures)
+			if c.ctx.Err() != nil {
+				return
+			}
+			// A session that ends at once counts as a failed attempt, so a
+			// backend dropping every login is not redialled in a tight loop.
+			if lasted >= c.cfg.XMPPReconnectBackoff {
+				backoff, failures = c.cfg.XMPPReconnectBackoff, 0
+				continue
+			}
+			err = errSessionEndedEarly
 		}
 
 		failures++
@@ -183,22 +187,53 @@ func (c *Client) connectWithRetry() {
 
 		c.publishConnectionStatus(events.ConnectionStatusReconnecting, err.Error(), failures)
 
-		// Exponential backoff with max
 		select {
-		case <-time.After(backoff):
-			backoff *= 2
-			if backoff > c.cfg.XMPPMaxReconnectWait {
-				backoff = c.cfg.XMPPMaxReconnectWait
-			}
+		case <-time.After(jitter(backoff)):
+			backoff = min(backoff*2, c.cfg.XMPPMaxReconnectWait)
 		case <-c.ctx.Done():
 			return
 		}
 	}
 }
 
+var errSessionEndedEarly = errors.New("session ended right after connecting")
+
+// holdSession announces the session Connect opened and waits for it or the
+// client to end, returning how long it lasted.
+func (c *Client) holdSession(reconnects int) time.Duration {
+	done := c.nefitClient.Done()
+	start := time.Now()
+
+	c.logger.Info("connected to nefit backend")
+	c.publishConnectionStatus(events.ConnectionStatusConnected, "", reconnects)
+	// Pushes missed while down would otherwise wait for the next poll. A
+	// silent gateway leaves it unanswered, which ends the session early.
+	c.requestRefresh(false)
+
+	select {
+	case <-done:
+	case <-c.ctx.Done():
+	}
+
+	// Close ends the session too; that is not a loss.
+	if c.ctx.Err() == nil {
+		c.logger.Warn("lost connection to nefit backend")
+		c.publishConnectionStatus(events.ConnectionStatusDisconnected, "", reconnects)
+	}
+
+	return time.Since(start)
+}
+
+// jitter picks a wait in [d/2, d] so bridges cut off by the same outage do not
+// redial in step.
+func jitter(d time.Duration) time.Duration {
+	return d/2 + rand.N(d/2+1) //nolint:gosec // G404: jitter needs spread, not secrecy.
+}
+
 // refreshLoop is the only goroutine that fetches and publishes status, so an
-// older response can never overwrite a newer one. It polls on an interval to
-// keep the connection alive and otherwise fetches on request.
+// older response can never overwrite a newer one. It outlives sessions and
+// fetches on request or on an interval; the poll also exposes a silently dead
+// session, which nefit-go retires once a request goes unanswered.
 func (c *Client) refreshLoop() {
 	ticker := time.NewTicker(c.cfg.XMPPKeepaliveInterval)
 	defer ticker.Stop()
@@ -525,8 +560,6 @@ func (c *Client) publishConnectionStatus(status events.ConnectionStatus, errMsg 
 func (c *Client) Close() error {
 	c.logger.Info("shutting down nefit client")
 
-	c.publishConnectionStatus(events.ConnectionStatusDisconnected, "", 0)
-
 	c.cancel()
 
 	if c.nefitClient != nil {
@@ -536,6 +569,9 @@ func (c *Client) Close() error {
 	}
 
 	c.wg.Wait()
+
+	// After the wait, so no status from a stopping goroutine can follow it.
+	c.publishConnectionStatus(events.ConnectionStatusDisconnected, "", 0)
 
 	c.logger.Info("nefit client shut down complete")
 	return nil

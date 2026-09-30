@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	nefitclient "github.com/kradalby/nefit-go/client"
@@ -29,6 +30,19 @@ type fakeBackend struct {
 	statusDelay time.Duration
 	inflight    int
 	maxInflight int
+
+	// session mirrors nefit-go's: closed when the session ends and replaced
+	// by the next successful Connect; nil before the first.
+	session chan struct{}
+	// unanswered is how many upcoming Status calls go unanswered, which in
+	// nefit-go retires the session.
+	unanswered int
+	// flapping ends every session as soon as it starts.
+	flapping bool
+	// dialDelay stalls Connect, which like nefit-go's gives up when its
+	// context ends.
+	dialDelay time.Duration
+	closed    bool
 }
 
 func (f *fakeBackend) record(call string) {
@@ -43,17 +57,75 @@ func (f *fakeBackend) Calls() []string {
 	return slices.Clone(f.calls)
 }
 
-func (f *fakeBackend) Connect(context.Context) error {
+// Connect is a no-op while a session is alive, like nefit-go's.
+func (f *fakeBackend) Connect(ctx context.Context) error {
 	f.record("Connect")
-	return f.connectErr
+	select {
+	case <-time.After(f.dialDelay):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.closed {
+		return errors.New("client closed")
+	}
+	if f.connectErr != nil {
+		return f.connectErr
+	}
+	if f.session == nil || isClosed(f.session) {
+		f.session = make(chan struct{})
+		if f.flapping {
+			close(f.session)
+		}
+	}
+	return nil
 }
 
-func (f *fakeBackend) Close() error                       { return nil }
+func (f *fakeBackend) Done() <-chan struct{} {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.session == nil {
+		ch := make(chan struct{})
+		close(ch)
+		return ch
+	}
+	return f.session
+}
+
+// drop ends the session the way a read error does.
+func (f *fakeBackend) drop() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.endSessionLocked()
+}
+
+func (f *fakeBackend) endSessionLocked() {
+	if f.session != nil && !isClosed(f.session) {
+		close(f.session)
+	}
+}
+
+func (f *fakeBackend) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closed = true
+	f.endSessionLocked()
+	return nil
+}
+
 func (f *fakeBackend) Subscribe(nefitclient.EventHandler) {}
 
 func (f *fakeBackend) Status(_ context.Context, outdoor bool) (*types.Status, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, fmt.Sprintf("Status(%v)", outdoor))
+	if f.unanswered > 0 {
+		f.unanswered--
+		f.endSessionLocked()
+		f.mu.Unlock()
+		return nil, context.DeadlineExceeded
+	}
 	f.inflight++
 	f.maxInflight = max(f.maxInflight, f.inflight)
 	st := f.status
@@ -80,6 +152,15 @@ func (f *fakeBackend) SetUserMode(_ context.Context, mode string) error {
 func (f *fakeBackend) SetHotWaterSupply(_ context.Context, enabled bool) error {
 	f.record(fmt.Sprintf("SetHotWaterSupply(%v)", enabled))
 	return nil
+}
+
+func isClosed(ch chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
 }
 
 // waitFor polls cond until it holds or a deadline passes.
@@ -315,31 +396,6 @@ func TestCommandsInDebounceWindowAllApply(t *testing.T) {
 	}
 }
 
-// Close publishes a connection status while connectWithRetry is still counting
-// failed attempts; run under -race.
-func TestCloseDuringReconnect(t *testing.T) {
-	c, _, cleanup := newTestClient(t)
-	defer cleanup()
-
-	fake := &fakeBackend{connectErr: errors.New("unreachable")}
-	c.nefitClient = fake
-	c.cfg.XMPPReconnectBackoff = time.Millisecond
-	c.cfg.XMPPMaxReconnectWait = time.Millisecond
-	c.ctx, c.cancel = context.WithCancel(context.Background())
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		c.connectWithRetry()
-	}()
-
-	waitFor(t, "a few failed attempts", func() bool {
-		return len(fake.Calls()) >= 3
-	})
-	_ = c.Close()
-	<-done
-}
-
 // nefit-go runs each push handler on its own goroutine, and polls and
 // post-command syncs fetch too. Overlapping fetches can publish out of order,
 // letting an older status overwrite a newer one, so they must run one at a
@@ -417,4 +473,177 @@ func TestCloseWaitsForInFlightFetch(t *testing.T) {
 	_ = c.Close()
 	_ = bus.Close()
 	time.Sleep(2 * fake.statusDelay)
+}
+
+// startWithFake starts c against fake and returns the connection statuses
+// published so far. Call it inside a synctest bubble: the deferred Close must
+// leave no goroutine behind.
+func startWithFake(t *testing.T, fake *fakeBackend) (c *Client, statuses func() []events.ConnectionStatus) {
+	t.Helper()
+
+	c, bus, cleanup := newTestClient(t)
+	c.nefitClient = fake
+	c.ctx, c.cancel = context.WithCancel(context.Background())
+
+	metrics, err := bus.Client(events.ClientMetrics)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := eventbus.Subscribe[events.ConnectionStatusEvent](metrics)
+
+	var (
+		mu  sync.Mutex
+		got []events.ConnectionStatus
+	)
+	go func() {
+		for {
+			select {
+			case ev := <-sub.Events():
+				mu.Lock()
+				got = append(got, ev.Status)
+				mu.Unlock()
+			case <-sub.Done():
+				return
+			}
+		}
+	}()
+
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Cleanups run last-in first-out: client, subscription, bus.
+	t.Cleanup(cleanup)
+	t.Cleanup(sub.Close)
+	t.Cleanup(func() { _ = c.Close() })
+
+	return c, func() []events.ConnectionStatus {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(got)
+	}
+}
+
+func last[T any](s []T) (T, bool) {
+	if len(s) == 0 {
+		var zero T
+		return zero, false
+	}
+	return s[len(s)-1], true
+}
+
+// Pushes stop with the session and nefit-go only reconnects for a request, so
+// the bridge must, then refetch what it missed.
+func TestReconnectsAfterSessionDrop(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fake := &fakeBackend{}
+		_, statuses := startWithFake(t, fake)
+
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		if s, _ := last(statuses()); s != events.ConnectionStatusConnected {
+			t.Fatalf("status = %q before drop, want connected", s)
+		}
+
+		seen, before := len(statuses()), len(fake.Calls())
+		fake.drop()
+		synctest.Wait()
+
+		if got, want := fake.Calls()[before:], []string{"Connect", "Status(false)"}; !slices.Equal(got, want) {
+			t.Fatalf("calls after drop = %v, want %v", got, want)
+		}
+		got := statuses()[seen:]
+		if !slices.Contains(got, events.ConnectionStatusDisconnected) {
+			t.Errorf("statuses after drop = %v, want a disconnected", got)
+		}
+		if s, _ := last(got); s != events.ConnectionStatusConnected {
+			t.Errorf("statuses after drop = %v, want to end connected", got)
+		}
+	})
+}
+
+// nefit-go retires a session whose request goes unanswered, since the protocol
+// cannot tell a late reply from the next answer.
+func TestReconnectsAfterRequestTimeout(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fake := &fakeBackend{}
+		c, _ := startWithFake(t, fake)
+
+		time.Sleep(time.Minute)
+		synctest.Wait()
+
+		before := len(fake.Calls())
+		fake.mu.Lock()
+		fake.unanswered = 1
+		fake.mu.Unlock()
+		c.requestRefresh(false)
+		synctest.Wait()
+
+		want := []string{"Status(false)", "Connect", "Status(false)"}
+		if got := fake.Calls()[before:]; !slices.Equal(got, want) {
+			t.Fatalf("calls after timeout = %v, want %v", got, want)
+		}
+	})
+}
+
+// A backend that accepts a session and ends it at once must not be redialled
+// in a tight loop.
+func TestShortSessionsBackOff(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fake := &fakeBackend{flapping: true}
+		startWithFake(t, fake)
+		synctest.Wait()
+
+		connects := func() int {
+			return len(slices.DeleteFunc(fake.Calls(), func(s string) bool { return s != "Connect" }))
+		}
+		if n := connects(); n != 1 {
+			t.Fatalf("%d connects before any backoff elapsed, want 1", n)
+		}
+
+		// Jitter never shortens a wait below half the backoff.
+		time.Sleep(time.Minute)
+		if n, most := connects(), 1+int(time.Minute/(time.Second/2)); n > most {
+			t.Fatalf("%d connects in a minute, want at most %d", n, most)
+		}
+	})
+}
+
+func TestCloseDuringBackoffReturnsPromptly(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fake := &fakeBackend{connectErr: errors.New("unreachable")}
+		c, _ := startWithFake(t, fake)
+		time.Sleep(time.Minute)
+		synctest.Wait()
+
+		start := time.Now()
+		_ = c.Close()
+		if waited := time.Since(start); waited != 0 {
+			t.Fatalf("Close waited %v for the backoff", waited)
+		}
+	})
+}
+
+// A login can take up to nefit-go's ConnectTimeout; Close must not wait it out,
+// and the last word must be disconnected.
+func TestCloseDuringDialEndsDisconnected(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fake := &fakeBackend{dialDelay: time.Minute}
+		c, statuses := startWithFake(t, fake)
+		synctest.Wait()
+
+		start := time.Now()
+		_ = c.Close()
+		if waited := time.Since(start); waited != 0 {
+			t.Fatalf("Close waited %v for the dial", waited)
+		}
+		synctest.Wait()
+
+		if got := statuses(); !slices.Equal(got, []events.ConnectionStatus{
+			events.ConnectionStatusConnecting,
+			events.ConnectionStatusDisconnected,
+		}) {
+			t.Fatalf("statuses = %v, want connecting then disconnected", got)
+		}
+	})
 }
