@@ -49,16 +49,15 @@ type backend interface {
 
 // Client manages the persistent connection to the Nefit Easy thermostat.
 type Client struct {
-	cfg          *config.Config
-	logger       *slog.Logger
-	bus          *events.Bus
-	client       *eventbus.Client
-	nefitClient  backend
-	ctx          context.Context
-	cancel       context.CancelFunc
-	reconnectNum int
-	stateMu      sync.RWMutex
-	lastEvent    *events.StateUpdateEvent
+	cfg         *config.Config
+	logger      *slog.Logger
+	bus         *events.Bus
+	client      *eventbus.Client
+	nefitClient backend
+	ctx         context.Context
+	cancel      context.CancelFunc
+	stateMu     sync.RWMutex
+	lastEvent   *events.StateUpdateEvent
 
 	// refreshStatus re-reads the full status from the backend and publishes it.
 	// A field rather than a direct call so tests can observe that a push
@@ -140,6 +139,7 @@ func (c *Client) Start() error {
 // connectWithRetry attempts to connect to the Nefit backend with exponential backoff.
 func (c *Client) connectWithRetry() {
 	backoff := c.cfg.XMPPReconnectBackoff
+	failures := 0
 
 	for {
 		select {
@@ -151,16 +151,15 @@ func (c *Client) connectWithRetry() {
 
 		c.logger.Info(
 			"attempting to connect to nefit backend",
-			slog.Int("attempt", c.reconnectNum+1),
+			slog.Int("attempt", failures+1),
 		)
 
-		c.publishConnectionStatus(events.ConnectionStatusConnecting, "")
+		c.publishConnectionStatus(events.ConnectionStatusConnecting, "", failures)
 
 		err := c.nefitClient.Connect(c.ctx)
 		if err == nil {
 			c.logger.Info("connected to nefit backend")
-			c.publishConnectionStatus(events.ConnectionStatusConnected, "")
-			c.reconnectNum = 0
+			c.publishConnectionStatus(events.ConnectionStatusConnected, "", failures)
 
 			// Start periodic status polling to keep connection alive
 			go c.pollStatus()
@@ -170,15 +169,15 @@ func (c *Client) connectWithRetry() {
 			return
 		}
 
-		c.reconnectNum++
+		failures++
 		c.logger.Error(
 			"failed to connect to nefit backend",
 			slog.Any("error", err),
-			slog.Int("attempt", c.reconnectNum),
+			slog.Int("attempt", failures),
 			slog.Duration("backoff", backoff),
 		)
 
-		c.publishConnectionStatus(events.ConnectionStatusReconnecting, err.Error())
+		c.publishConnectionStatus(events.ConnectionStatusReconnecting, err.Error(), failures)
 
 		// Exponential backoff with max
 		select {
@@ -505,12 +504,12 @@ func (c *Client) setUserMode(ctx context.Context, mode string) error {
 }
 
 // publishConnectionStatus publishes a connection status event.
-func (c *Client) publishConnectionStatus(status events.ConnectionStatus, errMsg string) {
+func (c *Client) publishConnectionStatus(status events.ConnectionStatus, errMsg string, reconnects int) {
 	event := events.ConnectionStatusEvent{
 		Component:  events.SourceNefit,
 		Status:     status,
 		Error:      errMsg,
-		Reconnects: c.reconnectNum,
+		Reconnects: reconnects,
 	}
 	c.bus.PublishConnectionStatus(c.client, event)
 }
@@ -519,7 +518,7 @@ func (c *Client) publishConnectionStatus(status events.ConnectionStatus, errMsg 
 func (c *Client) Close() error {
 	c.logger.Info("shutting down nefit client")
 
-	c.publishConnectionStatus(events.ConnectionStatusDisconnected, "")
+	c.publishConnectionStatus(events.ConnectionStatusDisconnected, "", 0)
 
 	c.cancel()
 
