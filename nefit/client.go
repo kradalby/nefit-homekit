@@ -3,6 +3,7 @@ package nefit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -125,8 +126,9 @@ func (c *Client) Start() error {
 	// Subscribe to push notifications from Nefit backend
 	c.nefitClient.Subscribe(c.handleNefitEvent)
 
-	// Subscribe to command events from eventbus
-	go c.handleCommands()
+	// Subscribe before returning so commands published right after Start are
+	// not lost.
+	go c.handleCommands(eventbus.Subscribe[events.CommandEvent](c.client))
 
 	// Connect with retry logic
 	go c.connectWithRetry()
@@ -299,17 +301,49 @@ func (c *Client) publishStateUpdate(status types.Status, force bool) {
 	c.stateMu.Unlock()
 }
 
-// handleCommands subscribes to command events and executes them on the Nefit backend.
-func (c *Client) handleCommands() {
-	sub := eventbus.Subscribe[events.CommandEvent](c.client)
+// desired folds the commands received in one debounce window. Each command
+// type owns one field, so a later command replaces only its own kind and every
+// requested change survives to the flush. Nil means not requested.
+type desired struct {
+	mode        *string
+	temperature *float64
+	hotWater    *bool
+}
+
+// with returns d with cmd folded in; d itself is left untouched.
+func (d desired) with(cmd events.CommandEvent) (desired, error) {
+	switch cmd.CommandType {
+	case events.CommandTypeSetMode:
+		if cmd.Mode == nil {
+			return d, errors.New("set mode command missing mode")
+		}
+		d.mode = new(*cmd.Mode)
+	case events.CommandTypeSetTemperature:
+		if cmd.TargetTemperature == nil {
+			return d, errors.New("set temperature command missing temperature")
+		}
+		d.temperature = new(*cmd.TargetTemperature)
+	case events.CommandTypeSetHotWater:
+		if cmd.HotWaterEnabled == nil {
+			return d, errors.New("set hot water command missing value")
+		}
+		d.hotWater = new(*cmd.HotWaterEnabled)
+	default:
+		return d, fmt.Errorf("unknown command type %q", cmd.CommandType)
+	}
+
+	return d, nil
+}
+
+// handleCommands debounces command events from sub and applies them to the
+// Nefit backend.
+func (c *Client) handleCommands(sub *eventbus.Subscriber[events.CommandEvent]) {
 	defer sub.Close()
 
-	c.logger.Info("subscribed to command events")
-
 	var (
-		pendingCommand *events.CommandEvent
-		timer          *time.Timer
-		timerC         <-chan time.Time
+		pending desired
+		timer   *time.Timer
+		timerC  <-chan time.Time
 	)
 
 	resetTimer := func() {
@@ -350,19 +384,23 @@ func (c *Client) handleCommands() {
 				continue
 			}
 
-			eventCopy := event
-			pendingCommand = &eventCopy
+			next, err := pending.with(event)
+			if err != nil {
+				c.logger.Warn("ignoring command", slog.Any("error", err))
+				continue
+			}
+			pending = next
 			resetTimer()
 		case <-timerC:
 			timer = nil
 			timerC = nil
 
-			if pendingCommand == nil {
-				continue
+			err := c.apply(pending)
+			if err != nil {
+				c.logger.Error("failed to apply commands", slog.Any("error", err))
 			}
-
-			c.handleCommand(*pendingCommand)
-			pendingCommand = nil
+			pending = desired{}
+			c.syncState(err != nil)
 		case <-c.ctx.Done():
 			c.logger.Info("stopping command handler")
 			stopTimer()
@@ -371,77 +409,48 @@ func (c *Client) handleCommands() {
 	}
 }
 
-// handleCommand executes a single command on the Nefit backend.
-func (c *Client) handleCommand(cmd events.CommandEvent) {
+// apply pushes every change in d to the Nefit backend. Mode goes first so the
+// setpoint and hot water land on the mode they were meant for; nefit-go picks
+// the hot water endpoint by the current mode.
+func (c *Client) apply(d desired) error {
+	var errs []error
+
+	if d.mode != nil {
+		c.logger.Info("setting mode", slog.String("mode", *d.mode))
+		errs = append(errs, c.withTimeout(func(ctx context.Context) error {
+			return c.setUserMode(ctx, *d.mode)
+		}))
+	}
+
+	if d.temperature != nil {
+		c.logger.Info("setting target temperature", slog.Float64("temperature", *d.temperature))
+		errs = append(errs, c.withTimeout(func(ctx context.Context) error {
+			if err := c.nefitClient.SetTemperature(ctx, *d.temperature); err != nil {
+				return fmt.Errorf("failed to set temperature: %w", err)
+			}
+			return nil
+		}))
+	}
+
+	if d.hotWater != nil {
+		c.logger.Info("setting hot water", slog.Bool("enabled", *d.hotWater))
+		errs = append(errs, c.withTimeout(func(ctx context.Context) error {
+			if err := c.nefitClient.SetHotWaterSupply(ctx, *d.hotWater); err != nil {
+				return fmt.Errorf("failed to set hot water: %w", err)
+			}
+			return nil
+		}))
+	}
+
+	return errors.Join(errs...)
+}
+
+// withTimeout runs f with a per-call deadline so one slow request cannot eat
+// the budget of the rest.
+func (c *Client) withTimeout(f func(ctx context.Context) error) error {
 	ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
 	defer cancel()
-	success := false
-	defer func() {
-		c.syncState(!success)
-	}()
-
-	switch cmd.CommandType {
-	case events.CommandTypeSetTemperature:
-		if cmd.TargetTemperature == nil {
-			c.logger.Warn("set temperature command missing temperature value")
-			return
-		}
-
-		c.logger.Info(
-			"setting target temperature",
-			slog.Float64("temperature", *cmd.TargetTemperature),
-		)
-
-		if err := c.nefitClient.SetTemperature(ctx, *cmd.TargetTemperature); err != nil {
-			c.logger.Error("failed to set temperature", slog.Any("error", err))
-			return
-		}
-
-		success = true
-
-	case events.CommandTypeSetMode:
-		if cmd.Mode == nil {
-			c.logger.Warn("set mode command missing mode value")
-			return
-		}
-
-		c.logger.Info(
-			"setting mode",
-			slog.String("mode", *cmd.Mode),
-		)
-
-		if err := c.setUserMode(ctx, *cmd.Mode); err != nil {
-			c.logger.Error("failed to set mode", slog.Any("error", err))
-			return
-		}
-
-		success = true
-
-	case events.CommandTypeSetHotWater:
-		if cmd.HotWaterEnabled == nil {
-			c.logger.Warn("set hot water command missing value")
-			return
-		}
-
-		c.logger.Info(
-			"setting hot water",
-			slog.Bool("enabled", *cmd.HotWaterEnabled),
-		)
-
-		if err := c.nefitClient.SetHotWaterSupply(ctx, *cmd.HotWaterEnabled); err != nil {
-			c.logger.Error("failed to set hot water", slog.Any("error", err))
-			return
-		}
-
-		success = true
-
-	default:
-		c.logger.Warn(
-			"unknown command type",
-			slog.String("type", string(cmd.CommandType)),
-		)
-		success = true
-	}
+	return f(ctx)
 }
 
 // syncState fetches the latest status and publishes it so every component sees the same view.
