@@ -473,3 +473,29 @@ func TestTargetStateAutoSelectsSchedule(t *testing.T) {
 		t.Fatal("Auto published no command")
 	}
 }
+
+// Nefit keeps its own manual setpoint and resumes it in manual mode, so Heat
+// must not override it with a guess.
+func TestTargetStateHeatKeepsManualSetpoint(t *testing.T) {
+	server, sub := newCallbackTestServer(t)
+	target := server.accessory.Thermostat.TargetHeatingCoolingState
+
+	if code := remoteWrite(t, target, characteristic.TargetHeatingCoolingStateHeat); code != 0 {
+		t.Fatalf("remote write of Heat rejected with %d", code)
+	}
+
+	select {
+	case cmd := <-sub.Events():
+		if cmd.CommandType != events.CommandTypeSetMode || cmd.Mode == nil || *cmd.Mode != modeHeat {
+			t.Fatalf("Heat published %+v, want set_mode %q", cmd, modeHeat)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Heat published no command")
+	}
+
+	select {
+	case cmd := <-sub.Events():
+		t.Fatalf("Heat published extra command %+v", cmd)
+	case <-time.After(50 * time.Millisecond):
+	}
+}

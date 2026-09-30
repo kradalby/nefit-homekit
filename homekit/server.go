@@ -23,9 +23,6 @@ const (
 	// has no off and keeps heating on its program.
 	modeOff  = "off"
 	modeHeat = "heat"
-
-	// Temperature constant for default "on" temperature.
-	tempDefaultOn = 18.0 // Default temperature when turning "on" with no previous state
 )
 
 // Server manages the HomeKit HAP server and accessory.
@@ -197,60 +194,23 @@ func (s *Server) setupAccessoryCallbacks() {
 			slog.Int("state", state),
 		)
 
+		// No setpoint goes with Heat: Nefit resumes its own manual setpoint.
+		var mode string
 		switch state {
 		case characteristic.TargetHeatingCoolingStateAuto:
-			mode := modeOff
-			s.bus.PublishCommand(s.client, events.CommandEvent{
-				Source:      events.SourceHomeKit,
-				CommandType: events.CommandTypeSetMode,
-				Mode:        &mode,
-			})
-
+			mode = modeOff
 		case characteristic.TargetHeatingCoolingStateHeat:
-			// Load previous temperature or use default
-			temp := tempDefaultOn
-			if prevTemp, err := loadPreviousTemperature(s.cfg.HAPStoragePath); err == nil {
-				temp = prevTemp
-				s.logger.Info(
-					"restored previous temperature",
-					slog.Float64("temperature", temp),
-				)
-			} else {
-				s.logger.Info(
-					"using default temperature (no previous state)",
-					slog.Float64("temperature", temp),
-					slog.Any("error", err),
-				)
-			}
-
-			// Set to manual mode (heat)
-			mode := modeHeat
-
-			s.logger.Info(
-				"turning on: setting to manual mode",
-				slog.Float64("temperature", temp),
-			)
-
-			// Publish mode command
-			modeEvent := events.CommandEvent{
-				Source:      events.SourceHomeKit,
-				CommandType: events.CommandTypeSetMode,
-				Mode:        &mode,
-			}
-			s.bus.PublishCommand(s.client, modeEvent)
-
-			// Publish temperature command
-			tempEvent := events.CommandEvent{
-				Source:            events.SourceHomeKit,
-				CommandType:       events.CommandTypeSetTemperature,
-				TargetTemperature: &temp,
-			}
-			s.bus.PublishCommand(s.client, tempEvent)
-
+			mode = modeHeat
 		default:
 			s.logger.Warn("unknown heating state", slog.Int("state", state))
 			return
 		}
+
+		s.bus.PublishCommand(s.client, events.CommandEvent{
+			Source:      events.SourceHomeKit,
+			CommandType: events.CommandTypeSetMode,
+			Mode:        &mode,
+		})
 	})
 }
 
