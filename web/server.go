@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -57,6 +58,14 @@ type Server struct {
 
 	state      atomic.Pointer[snapshot]
 	sseClients atomic.Int64
+
+	// serve runs the HTTP server until its context ends; tests stub it.
+	serve func(context.Context) error
+
+	// states exists from New on: the bus drops repeated states, so a status
+	// published before a later subscription would never come again.
+	states *eventbus.Subscriber[events.StateUpdateEvent]
+	wg     sync.WaitGroup
 }
 
 // snapshot is an immutable view of the latest state. next is closed when a
@@ -143,6 +152,8 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 		startedAt: time.Now(),
 	}
 	s.state.Store(&snapshot{next: make(chan struct{})})
+	s.serve = s.kraweb.ListenAndServe
+	s.states = eventbus.Subscribe[events.StateUpdateEvent](client)
 
 	// Register routes with kraweb
 	s.kraweb.Handle("/", http.HandlerFunc(s.handleIndex))
@@ -167,8 +178,7 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 func (s *Server) Start() error {
 	s.logger.Info("starting web server")
 
-	// Subscribe to state update events
-	go s.handleStateUpdates()
+	s.wg.Go(s.handleStateUpdates)
 
 	// Start kraweb in background
 	go func() {
@@ -177,7 +187,7 @@ func (s *Server) Start() error {
 			slog.String("addr", s.cfg.WebAddrPort().String()),
 			slog.String("tailscale_hostname", s.cfg.TailscaleHostname),
 		)
-		if err := s.kraweb.ListenAndServe(s.ctx); err != nil {
+		if err := s.serve(s.ctx); err != nil {
 			s.logger.Error("web server error", slog.Any("error", err))
 		}
 	}()
@@ -186,16 +196,11 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// handleStateUpdates subscribes to state update events and broadcasts to SSE clients.
+// handleStateUpdates broadcasts state update events to SSE clients.
 func (s *Server) handleStateUpdates() {
-	sub := eventbus.Subscribe[events.StateUpdateEvent](s.client)
-	defer sub.Close()
-
-	s.logger.Info("subscribed to state update events")
-
 	for {
 		select {
-		case event := <-sub.Events():
+		case event := <-s.states.Events():
 			s.updateState(event)
 		case <-s.ctx.Done():
 			s.logger.Info("stopping state update handler")
@@ -502,6 +507,8 @@ func (s *Server) Close() error {
 
 	// Ends SSE streams along with the background goroutines.
 	s.cancel()
+	s.wg.Wait()
+	s.states.Close()
 
 	s.logger.Info("web server shut down complete")
 	return nil
