@@ -229,7 +229,7 @@ func (c *Client) fetchAndPublishStatus(force bool) error {
 	ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
 	defer cancel()
 
-	status, err := c.nefitClient.Status(ctx, true)
+	status, err := c.nefitClient.Status(ctx, false)
 	if err != nil {
 		return fmt.Errorf("failed to get status: %w", err)
 	}
