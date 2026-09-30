@@ -396,6 +396,48 @@ func TestCommandsInDebounceWindowAllApply(t *testing.T) {
 	}
 }
 
+// Commands fold in arrival order. nefit-go's SetTemperature turns on a manual
+// override, so a setpoint sent along with Auto would hold off the clock
+// program Auto asked for; a setpoint after Auto is a deliberate override.
+func TestApplyAutoAndSetpoint(t *testing.T) {
+	auto, heat, temp := modeOff, modeHeat, 21.0
+	setMode := func(m *string) events.CommandEvent {
+		return events.CommandEvent{CommandType: events.CommandTypeSetMode, Mode: m}
+	}
+	setTemp := events.CommandEvent{CommandType: events.CommandTypeSetTemperature, TargetTemperature: &temp}
+
+	for _, tc := range []struct {
+		name string
+		cmds []events.CommandEvent
+		want []string
+	}{
+		{"setpoint then Auto", []events.CommandEvent{setTemp, setMode(&auto)}, []string{"SetUserMode(clock)"}},
+		{"Auto then setpoint", []events.CommandEvent{setMode(&auto), setTemp}, []string{"SetUserMode(clock)", "SetTemperature(21)"}},
+		{"setpoint then Heat", []events.CommandEvent{setTemp, setMode(&heat)}, []string{"SetUserMode(manual)", "SetTemperature(21)"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _, cleanup := newTestClient(t)
+			defer cleanup()
+			fake := &fakeBackend{}
+			c.nefitClient = fake
+
+			var d desired
+			for _, cmd := range tc.cmds {
+				var err error
+				if d, err = d.with(cmd); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := c.apply(d); err != nil {
+				t.Fatal(err)
+			}
+			if got := fake.Calls(); !slices.Equal(got, tc.want) {
+				t.Fatalf("calls = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // nefit-go runs each push handler on its own goroutine, and polls and
 // post-command syncs fetch too. Overlapping fetches can publish out of order,
 // letting an older status overwrite a newer one, so they must run one at a

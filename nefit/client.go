@@ -343,7 +343,8 @@ func (c *Client) publishStateUpdate(status types.Status, force bool) {
 
 // desired folds the commands received in one debounce window. Each command
 // type owns one field, so a later command replaces only its own kind and every
-// requested change survives to the flush. Nil means not requested.
+// requested change survives to the flush, save a setpoint that Auto follows.
+// Nil means not requested.
 type desired struct {
 	mode        *string
 	temperature *float64
@@ -358,6 +359,11 @@ func (d desired) with(cmd events.CommandEvent) (desired, error) {
 			return d, errors.New("set mode command missing mode")
 		}
 		d.mode = new(*cmd.Mode)
+		// nefit-go's SetTemperature turns on a manual override, which would
+		// hold off the clock program Auto asked for.
+		if *cmd.Mode == modeOff {
+			d.temperature = nil
+		}
 	case events.CommandTypeSetTemperature:
 		if cmd.TargetTemperature == nil {
 			return d, errors.New("set temperature command missing temperature")
