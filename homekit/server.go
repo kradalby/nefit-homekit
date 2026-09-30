@@ -10,6 +10,7 @@ import (
 
 	"github.com/brutella/hap"
 	"github.com/brutella/hap/accessory"
+	"github.com/brutella/hap/characteristic"
 	homekitqr "github.com/kradalby/homekit-qr"
 	"tailscale.com/util/eventbus"
 
@@ -18,6 +19,8 @@ import (
 )
 
 const (
+	// Event modes. "off" is Nefit's clock schedule, not off: the thermostat
+	// has no off and keeps heating on its program.
 	modeOff  = "off"
 	modeHeat = "heat"
 
@@ -82,6 +85,12 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 	s.accessory.Thermostat.TargetTemperature.SetMaxValue(30.0)
 	s.accessory.Thermostat.TargetTemperature.SetStepValue(0.5)
 	s.accessory.Thermostat.TargetTemperature.SetValue(20.0)
+
+	// Offer only what Nefit can do, so hap rejects Off before any callback.
+	// Auto, Nefit's default, stands in until the first status arrives.
+	target := s.accessory.Thermostat.TargetHeatingCoolingState
+	target.ValidVals = []int{characteristic.TargetHeatingCoolingStateHeat, characteristic.TargetHeatingCoolingStateAuto}
+	s.setChar("TargetHeatingCoolingState", target.SetValue(characteristic.TargetHeatingCoolingStateAuto))
 
 	// Create HAP server
 	s.server, err = hap.NewServer(
@@ -189,13 +198,15 @@ func (s *Server) setupAccessoryCallbacks() {
 		)
 
 		switch state {
-		case 0: // Off
-			// Nefit doesn't support true "off" - just ignore this command
-			// and keep the thermostat in its current state
-			s.logger.Info("off command received - ignoring (Nefit doesn't support off)")
-			return
+		case characteristic.TargetHeatingCoolingStateAuto:
+			mode := modeOff
+			s.bus.PublishCommand(s.client, events.CommandEvent{
+				Source:      events.SourceHomeKit,
+				CommandType: events.CommandTypeSetMode,
+				Mode:        &mode,
+			})
 
-		case 1, 3: // Heat or Auto (Nefit only supports heat)
+		case characteristic.TargetHeatingCoolingStateHeat:
 			// Load previous temperature or use default
 			temp := tempDefaultOn
 			if prevTemp, err := loadPreviousTemperature(s.cfg.HAPStoragePath); err == nil {
@@ -300,12 +311,11 @@ func (s *Server) updateAccessory(event events.StateUpdateEvent) {
 		s.setChar("CurrentHeatingCoolingState", s.accessory.Thermostat.CurrentHeatingCoolingState.SetValue(0)) // Off
 	}
 
-	// Update target heating cooling state based on mode
 	switch event.Mode {
 	case modeOff:
-		s.setChar("TargetHeatingCoolingState", s.accessory.Thermostat.TargetHeatingCoolingState.SetValue(0)) // Off
+		s.setChar("TargetHeatingCoolingState", s.accessory.Thermostat.TargetHeatingCoolingState.SetValue(characteristic.TargetHeatingCoolingStateAuto))
 	case modeHeat:
-		s.setChar("TargetHeatingCoolingState", s.accessory.Thermostat.TargetHeatingCoolingState.SetValue(1)) // Heat
+		s.setChar("TargetHeatingCoolingState", s.accessory.Thermostat.TargetHeatingCoolingState.SetValue(characteristic.TargetHeatingCoolingStateHeat))
 	default:
 		s.logger.Warn("unknown mode", slog.String("mode", event.Mode))
 	}

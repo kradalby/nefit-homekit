@@ -1,11 +1,15 @@
 package homekit
 
 import (
+	"context"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/brutella/hap/characteristic"
 	"tailscale.com/util/eventbus"
 
 	"github.com/kradalby/nefit-homekit/config"
@@ -163,7 +167,7 @@ func TestUpdateAccessory(t *testing.T) {
 			wantTargetMode: 1, // Heat
 		},
 		{
-			name: "mode off",
+			name: "mode off (schedule)",
 			event: events.StateUpdateEvent{
 				Source:             "nefit",
 				CurrentTemperature: 20.0,
@@ -174,7 +178,7 @@ func TestUpdateAccessory(t *testing.T) {
 			wantCurrent:    20.0,
 			wantTarget:     15.0,
 			wantHeating:    0, // Off
-			wantTargetMode: 0, // Off
+			wantTargetMode: 3, // Auto: "off" is the clock schedule, which still heats
 		},
 	}
 
@@ -385,5 +389,87 @@ func TestClose(t *testing.T) {
 		// Success
 	default:
 		t.Error("context was not canceled")
+	}
+}
+
+func newCallbackTestServer(t *testing.T) (*Server, *eventbus.Subscriber[events.CommandEvent]) {
+	t.Helper()
+	logger := testLogger()
+	bus, err := events.New(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = bus.Close() })
+
+	server, err := New(newTestConfig(t), logger, bus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	server.setupAccessoryCallbacks()
+
+	nefitClient, err := bus.Client(events.ClientNefit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := eventbus.Subscribe[events.CommandEvent](nefitClient)
+	t.Cleanup(sub.Close)
+	return server, sub
+}
+
+// remoteWrite stands in for a paired controller writing a characteristic;
+// hap only treats a write as remote when it carries a request.
+func remoteWrite(t *testing.T, c interface {
+	SetValueRequest(any, *http.Request) (any, int)
+}, v any,
+) int {
+	t.Helper()
+	_, code := c.SetValueRequest(v, httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/characteristics", nil))
+	return code
+}
+
+// Nefit has no off. Accepting Off from HomeKit and ignoring it left the Home
+// app showing Off while the boiler kept heating, and bus dedup meant no later
+// update corrected it.
+func TestTargetStateRejectsOff(t *testing.T) {
+	server, sub := newCallbackTestServer(t)
+	target := server.accessory.Thermostat.TargetHeatingCoolingState
+	if err := target.SetValue(characteristic.TargetHeatingCoolingStateHeat); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := remoteWrite(t, target, characteristic.TargetHeatingCoolingStateOff); code == 0 {
+		t.Error("remote write of Off accepted")
+	}
+	if got := target.Value(); got != characteristic.TargetHeatingCoolingStateHeat {
+		t.Errorf("TargetHeatingCoolingState = %d after rejected Off, want Heat", got)
+	}
+
+	select {
+	case cmd := <-sub.Events():
+		t.Fatalf("rejected Off published %+v", cmd)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// Auto hands control back to the thermostat's schedule (Nefit clock mode).
+func TestTargetStateAutoSelectsSchedule(t *testing.T) {
+	server, sub := newCallbackTestServer(t)
+	target := server.accessory.Thermostat.TargetHeatingCoolingState
+	if err := target.SetValue(characteristic.TargetHeatingCoolingStateHeat); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := remoteWrite(t, target, characteristic.TargetHeatingCoolingStateAuto); code != 0 {
+		t.Fatalf("remote write of Auto rejected with %d", code)
+	}
+
+	select {
+	case cmd := <-sub.Events():
+		if cmd.CommandType != events.CommandTypeSetMode || cmd.Mode == nil || *cmd.Mode != modeOff {
+			t.Fatalf("Auto published %+v, want set_mode %q", cmd, modeOff)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Auto published no command")
 	}
 }
