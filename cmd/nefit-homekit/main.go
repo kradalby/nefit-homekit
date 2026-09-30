@@ -2,12 +2,12 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
 
@@ -26,15 +26,37 @@ func main() {
 	}
 }
 
-// closeWithLog closes c, logging start and any error. Cleanup is best-effort.
-func closeWithLog(logger *slog.Logger, name string, c io.Closer) {
-	logger.Info("closing " + name)
-	if err := c.Close(); err != nil {
-		logger.Warn(
-			"failed to close",
-			slog.String("component", name),
-			slog.Any("error", err),
-		)
+// shutdownTimeout bounds shutdown so a wedged component cannot block exit.
+const shutdownTimeout = 10 * time.Second
+
+type component struct {
+	name string
+	io.Closer
+}
+
+// shutdown closes components newest first and gives up after shutdownTimeout.
+// Cleanup is best-effort: errors are logged, not returned.
+func shutdown(logger *slog.Logger, components []component) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for _, c := range slices.Backward(components) {
+			logger.Info("closing " + c.name)
+			if err := c.Close(); err != nil {
+				logger.Warn(
+					"failed to close",
+					slog.String("component", c.name),
+					slog.Any("error", err),
+				)
+			}
+		}
+	}()
+
+	select {
+	case <-done:
+		logger.Info("shutdown complete")
+	case <-time.After(shutdownTimeout):
+		logger.Warn("shutdown timeout exceeded, forcing exit")
 	}
 }
 
@@ -61,13 +83,16 @@ func run() error {
 		slog.String("bridge_name", cfg.BridgeName),
 	)
 
+	var components []component
+	defer func() { shutdown(logger, components) }()
+
 	// Initialize EventBus
 	logger.Info("initializing eventbus")
 	bus, err := events.New(logger)
 	if err != nil {
 		return fmt.Errorf("failed to create eventbus: %w", err)
 	}
-	defer closeWithLog(logger, "eventbus", bus)
+	components = append(components, component{"eventbus", bus})
 
 	// Initialize Nefit client
 	logger.Info("initializing nefit client")
@@ -75,7 +100,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to create nefit client: %w", err)
 	}
-	defer closeWithLog(logger, "nefit client", nefitClient)
+	components = append(components, component{"nefit client", nefitClient})
 
 	// Initialize HomeKit server
 	logger.Info("initializing homekit server")
@@ -83,7 +108,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to create homekit server: %w", err)
 	}
-	defer closeWithLog(logger, "homekit server", homekitServer)
+	components = append(components, component{"homekit server", homekitServer})
 
 	// Initialize Web server
 	logger.Info("initializing web server")
@@ -91,7 +116,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to create web server: %w", err)
 	}
-	defer closeWithLog(logger, "web server", webServer)
+	components = append(components, component{"web server", webServer})
 
 	// Start all services
 	logger.Info("starting services")
@@ -133,25 +158,7 @@ func run() error {
 		slog.String("signal", sig.String()),
 	)
 
-	// Graceful shutdown
 	logger.Info("shutting down gracefully")
-
-	// Give services time to clean up
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	done := make(chan struct{})
-	go func() {
-		// Deferred functions will handle cleanup
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		logger.Info("shutdown complete")
-	case <-ctx.Done():
-		logger.Warn("shutdown timeout exceeded, forcing exit")
-	}
 
 	return nil
 }
