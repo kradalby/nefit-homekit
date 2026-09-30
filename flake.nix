@@ -50,7 +50,7 @@
           root = ./.;
           pname = "nefit-homekit";
           version = "0.1.0";
-          vendorHash = "sha256-egnzOVkrlqmq/TUX42WXXFI6/g0JtRwWWHBvERaoYf4=";
+          vendorHash = "sha256-9vM5RM8YxX30z02VG9Pa9uDiJ79ZJpGrYCxiYSxE7GI=";
           goPkg = go;
           # web/server.go embeds web/static/app.js.
           embedDirs = [ (./. + "/web/static") ];
