@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/brutella/hap"
 	"github.com/brutella/hap/accessory"
@@ -35,6 +36,14 @@ type Server struct {
 	accessory *accessory.Thermostat
 	ctx       context.Context
 	cancel    context.CancelFunc
+
+	// serve runs the HAP server until its context ends; tests stub it.
+	serve func(context.Context) error
+
+	// states exists from New on: the bus drops repeated states, so a status
+	// published before a later subscription would never come again.
+	states *eventbus.Subscriber[events.StateUpdateEvent]
+	wg     sync.WaitGroup
 }
 
 // New creates a new HomeKit server.
@@ -102,6 +111,8 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 	// Set pin and listen address
 	s.server.Pin = cfg.HAPPin
 	s.server.Addr = cfg.HAPAddrPort().String()
+	s.serve = s.server.ListenAndServe
+	s.states = eventbus.Subscribe[events.StateUpdateEvent](client)
 
 	logger.Info(
 		"homekit server created",
@@ -122,15 +133,14 @@ func (s *Server) Start() error {
 	// Generate and print QR code
 	s.printSetupQRCode()
 
-	// Subscribe to state update events
-	go s.handleStateUpdates()
+	s.wg.Go(s.handleStateUpdates)
 
 	// Setup accessory callbacks for user interactions
 	s.setupAccessoryCallbacks()
 
 	// Start HAP server in background
 	go func() {
-		if err := s.server.ListenAndServe(s.ctx); err != nil {
+		if err := s.serve(s.ctx); err != nil {
 			s.logger.Error("HAP server error", slog.Any("error", err))
 		}
 	}()
@@ -214,16 +224,11 @@ func (s *Server) setupAccessoryCallbacks() {
 	})
 }
 
-// handleStateUpdates subscribes to state update events and updates the accessory.
+// handleStateUpdates mirrors state update events onto the accessory.
 func (s *Server) handleStateUpdates() {
-	sub := eventbus.Subscribe[events.StateUpdateEvent](s.client)
-	defer sub.Close()
-
-	s.logger.Info("subscribed to state update events")
-
 	for {
 		select {
-		case event := <-sub.Events():
+		case event := <-s.states.Events():
 			s.updateAccessory(event)
 		case <-s.ctx.Done():
 			s.logger.Info("stopping state update handler")
@@ -297,9 +302,10 @@ func (s *Server) Close() error {
 
 	s.publishConnectionStatus(events.ConnectionStatusDisconnected, "")
 
+	// The HAP server stops with the context.
 	s.cancel()
-
-	// The server stops when the context is canceled
+	s.wg.Wait()
+	s.states.Close()
 
 	s.logger.Info("homekit server shut down complete")
 	return nil

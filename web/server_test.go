@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"tailscale.com/util/eventbus"
@@ -434,67 +435,67 @@ func TestUpdateState(t *testing.T) {
 	}
 }
 
-func TestStateUpdatePubSub(t *testing.T) {
+// newBubbleServer returns a server whose Start opens no listener, so it can
+// run in a synctest bubble. Callers close it before the bus.
+func newBubbleServer(t *testing.T) (*Server, *events.Bus) {
+	t.Helper()
 	logger := testLogger()
 	bus, err := events.New(logger)
 	if err != nil {
-		t.Fatalf("events.New() error = %v", err)
+		t.Fatal(err)
 	}
-	defer func() {
-		_ = bus.Close()
-	}()
-
-	cfg := newTestConfig(t)
-
-	server, err := New(cfg, logger, bus)
+	server, err := New(newTestConfig(t), logger, bus)
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatal(err)
 	}
-	defer func() {
+	server.serve = func(ctx context.Context) error {
+		<-ctx.Done()
+		return nil
+	}
+	return server, bus
+}
+
+// Nefit can publish its first status before Start. The bus drops repeats of
+// it, so a subscription made later would leave the page on N/A for good.
+func TestStatusBeforeStartReachesPage(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		server, bus := newBubbleServer(t)
+		defer func() { _ = bus.Close() }()
+		defer func() { _ = server.Close() }()
+
+		nefit, err := bus.Client(events.ClientNefit)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		bus.PublishStateUpdate(nefit, events.StateUpdateEvent{Source: events.SourceNefit, CurrentTemperature: 21.5, TargetTemperature: 22, Mode: modeHeat})
+		if err := server.Start(); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		if ev := server.state.Load().ev; ev == nil || ev.CurrentTemperature != 21.5 {
+			t.Fatalf("state = %+v, want the status published before Start", ev)
+		}
+
+		bus.PublishStateUpdate(nefit, events.StateUpdateEvent{Source: events.SourceNefit, CurrentTemperature: 19, TargetTemperature: 18, Mode: modeOff})
+		synctest.Wait()
+		if ev := server.state.Load().ev; ev.TargetTemperature != 18 {
+			t.Errorf("TargetTemperature = %v after Start, want 18", ev.TargetTemperature)
+		}
+	})
+}
+
+// Shutdown can follow Start at once; nothing may subscribe to the bus after
+// it closes.
+func TestStartThenCloseAtOnce(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		server, bus := newBubbleServer(t)
+		if err := server.Start(); err != nil {
+			t.Fatal(err)
+		}
 		_ = server.Close()
-	}()
-
-	// Start server (which starts the state update handler)
-	if err := server.Start(); err != nil {
-		t.Fatalf("Start() error = %v", err)
-	}
-
-	// Give it time to start
-	time.Sleep(50 * time.Millisecond)
-
-	// Get a publisher client
-	publisherClient, err := bus.Client(events.ClientNefit)
-	if err != nil {
-		t.Fatalf("Client() error = %v", err)
-	}
-
-	// Publish a state update
-	event := events.StateUpdateEvent{
-		Source:             "nefit",
-		CurrentTemperature: 21.5,
-		TargetTemperature:  22.0,
-		HeatingActive:      true,
-		Mode:               "heat",
-	}
-
-	bus.PublishStateUpdate(publisherClient, event)
-
-	// Give it time to process
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify state was updated
-	state := server.state.Load().ev
-
-	if state == nil {
-		t.Fatal("currentState is nil")
-	}
-
-	if state.CurrentTemperature != 21.5 {
-		t.Errorf("CurrentTemperature = %v, want 21.5", state.CurrentTemperature)
-	}
-	if state.TargetTemperature != 22.0 {
-		t.Errorf("TargetTemperature = %v, want 22.0", state.TargetTemperature)
-	}
+		_ = bus.Close()
+	})
 }
 
 func TestHandleSSE(t *testing.T) {
