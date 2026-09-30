@@ -4,6 +4,7 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"tailscale.com/util/eventbus"
@@ -381,4 +382,18 @@ func TestPublishStateUpdateForce(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("forced publish should deliver duplicate event")
 	}
+}
+
+// Close must stop the underlying bus too, or its router goroutine outlives it.
+// synctest fails the test if any goroutine started inside the bubble remains.
+func TestCloseStopsBus(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		bus, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := bus.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
 }

@@ -174,11 +174,9 @@ func (b *Bus) Close() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Close all clients
-	for name, client := range b.clients {
-		client.Close()
-		delete(b.clients, name)
-	}
+	// Closes every client and stops the router goroutine.
+	b.bus.Close()
+	clear(b.clients)
 
 	b.logger.Info("eventbus shut down complete")
 	return nil
