@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -26,11 +27,16 @@ const (
 	ClientMetrics ClientName = "metrics"
 )
 
+// ErrClosed reports a publish after [Bus.Close]. Network handlers outlive
+// their server's Close, and publishing on a closed client panics.
+var ErrClosed = errors.New("eventbus closed")
+
 // Bus manages the eventbus and named clients.
 type Bus struct {
 	bus       *eventbus.Bus
 	clients   map[ClientName]*eventbus.Client
 	mu        sync.RWMutex
+	closed    bool // guarded by mu
 	logger    *slog.Logger
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -131,25 +137,25 @@ func (b *Bus) publishStateUpdate(client *eventbus.Client, event StateUpdateEvent
 		slog.Float64("target_temp", event.TargetTemperature),
 	)
 
-	publisher := eventbus.Publish[StateUpdateEvent](client)
-	defer publisher.Close()
-	publisher.Publish(event)
+	if err := publish(b, client, event); err != nil {
+		b.logger.Debug("dropping state update", slog.Any("error", err))
+		return
+	}
 
 	// Update last state for future deduplication
 	b.lastState = &event
 }
 
-// PublishCommand publishes a command event.
-func (b *Bus) PublishCommand(client *eventbus.Client, event CommandEvent) {
+// PublishCommand publishes a command event, or returns [ErrClosed] once the
+// bus has closed.
+func (b *Bus) PublishCommand(client *eventbus.Client, event CommandEvent) error {
 	b.logger.Debug(
 		"publishing command event",
 		slog.String("source", event.Source),
 		slog.String("command_type", string(event.CommandType)),
 	)
 
-	publisher := eventbus.Publish[CommandEvent](client)
-	defer publisher.Close()
-	publisher.Publish(event)
+	return publish(b, client, event)
 }
 
 // PublishConnectionStatus publishes a connection status event.
@@ -160,9 +166,24 @@ func (b *Bus) PublishConnectionStatus(client *eventbus.Client, event ConnectionS
 		slog.String("status", string(event.Status)),
 	)
 
-	publisher := eventbus.Publish[ConnectionStatusEvent](client)
+	if err := publish(b, client, event); err != nil {
+		b.logger.Debug("dropping connection status", slog.Any("error", err))
+	}
+}
+
+// publish holds mu for reading throughout, so Close waits out a publish in
+// flight and any later one gets ErrClosed.
+func publish[T any](b *Bus, client *eventbus.Client, event T) error {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.closed {
+		return ErrClosed
+	}
+
+	publisher := eventbus.Publish[T](client)
 	defer publisher.Close()
 	publisher.Publish(event)
+	return nil
 }
 
 // Close gracefully shuts down the eventbus.
@@ -173,6 +194,7 @@ func (b *Bus) Close() error {
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.closed = true
 
 	// Closes every client and stops the router goroutine.
 	b.bus.Close()

@@ -312,6 +312,30 @@ func TestStartThenCloseAtOnce(t *testing.T) {
 	})
 }
 
+// hap stops without waiting out its handlers, so a controller write already
+// in flight can reach a callback after the bus has closed.
+func TestRemoteWriteAfterShutdown(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		server, bus := newBubbleServer(t)
+		if err := server.Start(); err != nil {
+			t.Fatal(err)
+		}
+		_ = server.Close()
+		_ = bus.Close()
+
+		thermostat := server.accessory.Thermostat
+		if code := remoteWrite(t, thermostat.TargetTemperature, 23.0); code == 0 {
+			t.Error("setpoint accepted after shutdown")
+		}
+		if code := remoteWrite(t, thermostat.TargetHeatingCoolingState, characteristic.TargetHeatingCoolingStateHeat); code == 0 {
+			t.Error("mode accepted after shutdown")
+		}
+		if got := thermostat.TargetTemperature.Value(); got == 23.0 {
+			t.Error("rejected setpoint still shown")
+		}
+	})
+}
+
 func TestCommandPublish(t *testing.T) {
 	logger := testLogger()
 	bus, err := events.New(logger)
@@ -353,7 +377,9 @@ func TestCommandPublish(t *testing.T) {
 		CommandType:       events.CommandTypeSetTemperature,
 		TargetTemperature: &tempPtr,
 	}
-	bus.PublishCommand(server.client, event)
+	if err := bus.PublishCommand(server.client, event); err != nil {
+		t.Fatal(err)
+	}
 
 	// Wait for event
 	select {

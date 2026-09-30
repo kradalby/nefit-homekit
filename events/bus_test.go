@@ -1,6 +1,7 @@
 package events
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -132,7 +133,9 @@ func TestPublishAndSubscribe(t *testing.T) {
 			TargetTemperature: &temp,
 		}
 
-		bus.PublishCommand(publisher, expectedEvent)
+		if err := bus.PublishCommand(publisher, expectedEvent); err != nil {
+			t.Fatal(err)
+		}
 
 		select {
 		case receivedEvent := <-sub.Events():
@@ -396,4 +399,26 @@ func TestCloseStopsBus(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+// Network handlers can outlive their server's Close; a publish that comes
+// after the bus closes must fail rather than panic.
+func TestPublishAfterClose(t *testing.T) {
+	bus, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := bus.Client(ClientWeb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := bus.PublishCommand(client, CommandEvent{}); !errors.Is(err, ErrClosed) {
+		t.Errorf("PublishCommand after Close = %v, want ErrClosed", err)
+	}
+	bus.PublishStateUpdate(client, StateUpdateEvent{})
+	bus.PublishConnectionStatus(client, ConnectionStatusEvent{})
 }

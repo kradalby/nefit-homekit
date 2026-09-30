@@ -407,10 +407,16 @@ func TestCommandsInDebounceWindowAllApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	mode, draft, temp, hotWater := modeHeat, 19.0, 21.0, true
-	bus.PublishCommand(hk, events.CommandEvent{Source: events.SourceHomeKit, CommandType: events.CommandTypeSetTemperature, TargetTemperature: &draft})
-	bus.PublishCommand(hk, events.CommandEvent{Source: events.SourceHomeKit, CommandType: events.CommandTypeSetHotWater, HotWaterEnabled: &hotWater})
-	bus.PublishCommand(hk, events.CommandEvent{Source: events.SourceHomeKit, CommandType: events.CommandTypeSetTemperature, TargetTemperature: &temp})
-	bus.PublishCommand(hk, events.CommandEvent{Source: events.SourceHomeKit, CommandType: events.CommandTypeSetMode, Mode: &mode})
+	for _, cmd := range []events.CommandEvent{
+		{Source: events.SourceHomeKit, CommandType: events.CommandTypeSetTemperature, TargetTemperature: &draft},
+		{Source: events.SourceHomeKit, CommandType: events.CommandTypeSetHotWater, HotWaterEnabled: &hotWater},
+		{Source: events.SourceHomeKit, CommandType: events.CommandTypeSetTemperature, TargetTemperature: &temp},
+		{Source: events.SourceHomeKit, CommandType: events.CommandTypeSetMode, Mode: &mode},
+	} {
+		if err := bus.PublishCommand(hk, cmd); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	select {
 	case <-c.refresh:
