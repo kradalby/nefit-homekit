@@ -3,10 +3,16 @@ package nefit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	nefitclient "github.com/kradalby/nefit-go/client"
 
 	"github.com/kradalby/nefit-go/types"
 	"tailscale.com/util/eventbus"
@@ -14,6 +20,80 @@ import (
 	"github.com/kradalby/nefit-homekit/config"
 	"github.com/kradalby/nefit-homekit/events"
 )
+
+// fakeBackend records what the client asks of the thermostat.
+type fakeBackend struct {
+	mu          sync.Mutex
+	calls       []string
+	status      types.Status
+	connectErr  error
+	statusDelay time.Duration
+	inflight    int
+	maxInflight int
+}
+
+func (f *fakeBackend) record(call string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, call)
+}
+
+func (f *fakeBackend) Calls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.calls)
+}
+
+func (f *fakeBackend) Connect(context.Context) error {
+	f.record("Connect")
+	return f.connectErr
+}
+
+func (f *fakeBackend) Close() error                       { return nil }
+func (f *fakeBackend) Subscribe(nefitclient.EventHandler) {}
+
+func (f *fakeBackend) Status(_ context.Context, outdoor bool) (*types.Status, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, fmt.Sprintf("Status(%v)", outdoor))
+	f.inflight++
+	f.maxInflight = max(f.maxInflight, f.inflight)
+	st := f.status
+	f.mu.Unlock()
+
+	time.Sleep(f.statusDelay)
+
+	f.mu.Lock()
+	f.inflight--
+	f.mu.Unlock()
+	return &st, nil
+}
+
+func (f *fakeBackend) SetTemperature(_ context.Context, temp float64) error {
+	f.record(fmt.Sprintf("SetTemperature(%v)", temp))
+	return nil
+}
+
+func (f *fakeBackend) SetUserMode(_ context.Context, mode string) error {
+	f.record(fmt.Sprintf("SetUserMode(%s)", mode))
+	return nil
+}
+
+func (f *fakeBackend) SetHotWaterSupply(_ context.Context, enabled bool) error {
+	f.record(fmt.Sprintf("SetHotWaterSupply(%v)", enabled))
+	return nil
+}
+
+// waitFor polls cond until it holds or a deadline passes.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -204,5 +284,47 @@ func TestPublishConnectionStatus(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for connection status")
+	}
+}
+
+// HomeKit and the web UI can issue several commands inside one debounce
+// window, e.g. a mode switch and a setpoint; each kind must reach the
+// thermostat, with the latest value of each kind winning.
+func TestCommandsInDebounceWindowAllApply(t *testing.T) {
+	c, bus, cleanup := newTestClient(t)
+	defer cleanup()
+
+	fake := &fakeBackend{}
+	c.nefitClient = fake
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c.ctx = ctx
+
+	go c.handleCommands(eventbus.Subscribe[events.CommandEvent](c.client))
+
+	hk, err := bus.Client(events.ClientHomeKit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mode, draft, temp, hotWater := modeHeat, 19.0, 21.0, true
+	bus.PublishCommand(hk, events.CommandEvent{Source: events.SourceHomeKit, CommandType: events.CommandTypeSetTemperature, TargetTemperature: &draft})
+	bus.PublishCommand(hk, events.CommandEvent{Source: events.SourceHomeKit, CommandType: events.CommandTypeSetHotWater, HotWaterEnabled: &hotWater})
+	bus.PublishCommand(hk, events.CommandEvent{Source: events.SourceHomeKit, CommandType: events.CommandTypeSetTemperature, TargetTemperature: &temp})
+	bus.PublishCommand(hk, events.CommandEvent{Source: events.SourceHomeKit, CommandType: events.CommandTypeSetMode, Mode: &mode})
+
+	waitFor(t, "sync after commands", func() bool {
+		return slices.Contains(fake.Calls(), "Status(false)") || slices.Contains(fake.Calls(), "Status(true)")
+	})
+
+	// Mode goes first: the setpoint and hot water endpoints depend on it.
+	var got []string
+	for _, call := range fake.Calls() {
+		if !strings.HasPrefix(call, "Status") {
+			got = append(got, call)
+		}
+	}
+	want := []string{"SetUserMode(manual)", "SetTemperature(21)", "SetHotWaterSupply(true)"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("commands applied = %v, want %v", got, want)
 	}
 }
