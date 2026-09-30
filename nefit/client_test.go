@@ -43,6 +43,8 @@ type fakeBackend struct {
 	// context ends.
 	dialDelay time.Duration
 	closed    bool
+	// modeErr fails SetUserMode.
+	modeErr error
 }
 
 func (f *fakeBackend) record(call string) {
@@ -146,7 +148,7 @@ func (f *fakeBackend) SetTemperature(_ context.Context, temp float64) error {
 
 func (f *fakeBackend) SetUserMode(_ context.Context, mode string) error {
 	f.record(fmt.Sprintf("SetUserMode(%s)", mode))
-	return nil
+	return f.modeErr
 }
 
 func (f *fakeBackend) SetHotWaterSupply(_ context.Context, enabled bool) error {
@@ -435,6 +437,23 @@ func TestApplyAutoAndSetpoint(t *testing.T) {
 				t.Fatalf("calls = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// nefit-go writes hot water to the endpoint of the mode in effect, which after
+// a failed mode change is not the mode the request was meant for.
+func TestApplySkipsHotWaterWhenModeFails(t *testing.T) {
+	c, _, cleanup := newTestClient(t)
+	defer cleanup()
+	fake := &fakeBackend{modeErr: errors.New("timeout")}
+	c.nefitClient = fake
+
+	mode, hotWater := modeHeat, true
+	if err := c.apply(desired{mode: &mode, hotWater: &hotWater}); err == nil {
+		t.Fatal("apply succeeded with the mode change failing")
+	}
+	if got, want := fake.Calls(), []string{"SetUserMode(manual)"}; !slices.Equal(got, want) {
+		t.Fatalf("calls = %v, want %v", got, want)
 	}
 }
 
