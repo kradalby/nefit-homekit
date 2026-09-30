@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -416,9 +417,7 @@ func TestUpdateState(t *testing.T) {
 
 	server.updateState(event)
 
-	server.mu.RLock()
-	state := server.currentState
-	server.mu.RUnlock()
+	state := server.state.Load().ev
 
 	if state == nil {
 		t.Fatal("currentState is nil")
@@ -484,9 +483,7 @@ func TestStateUpdatePubSub(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify state was updated
-	server.mu.RLock()
-	state := server.currentState
-	server.mu.RUnlock()
+	state := server.state.Load().ev
 
 	if state == nil {
 		t.Fatal("currentState is nil")
@@ -672,13 +669,133 @@ func TestClose(t *testing.T) {
 	default:
 		t.Error("context was not canceled")
 	}
+}
 
-	// Verify SSE clients were cleaned up
-	server.mu.RLock()
-	clientCount := len(server.sseClients)
-	server.mu.RUnlock()
+// sseRecorder is a ResponseWriter that is safe to read while handleSSE writes
+// to it. With gate set, the first Write blocks until gate closes, standing in
+// for a client that stopped reading.
+type sseRecorder struct {
+	header  http.Header
+	gate    chan struct{}
+	blocked chan struct{} // closed once a Write waits on gate
+	once    sync.Once
 
-	if clientCount != 0 {
-		t.Errorf("After Close(), SSE client count = %d, want 0", clientCount)
+	mu   sync.Mutex
+	body strings.Builder
+}
+
+func newSSERecorder(gated bool) *sseRecorder {
+	r := &sseRecorder{header: http.Header{}}
+	if gated {
+		r.gate = make(chan struct{})
+		r.blocked = make(chan struct{})
 	}
+	return r
+}
+
+func (r *sseRecorder) Header() http.Header { return r.header }
+func (r *sseRecorder) WriteHeader(int)     {}
+func (r *sseRecorder) Flush()              {}
+
+func (r *sseRecorder) Write(b []byte) (int, error) {
+	if r.gate != nil {
+		r.once.Do(func() { close(r.blocked) })
+		<-r.gate
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.body.Write(b)
+}
+
+func (r *sseRecorder) String() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.body.String()
+}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func newSSETestServer(t *testing.T) *Server {
+	t.Helper()
+	bus, err := events.New(testLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = bus.Close() })
+
+	server, err := New(newTestConfig(t), testLogger(), bus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	return server
+}
+
+// Shutting down with a browser still connected must end the stream cleanly:
+// no panic, and no zero-value frame (0.0°C in the UI) after the real state.
+func TestSSECloseWithLiveClient(t *testing.T) {
+	server := newSSETestServer(t)
+	server.updateState(events.StateUpdateEvent{Source: events.SourceNefit, CurrentTemperature: 21.5, TargetTemperature: 22, Mode: modeHeat})
+
+	rec := newSSERecorder(false)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/events", nil)
+	panicked := make(chan any, 1)
+	go func() {
+		defer func() { panicked <- recover() }()
+		server.handleSSE(rec, req)
+	}()
+	waitFor(t, "initial frame", func() bool { return strings.Contains(rec.String(), "21.5") })
+
+	_ = server.Close()
+
+	select {
+	case p := <-panicked:
+		if p != nil {
+			t.Fatalf("handleSSE panicked: %v", p)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("handleSSE did not return after Close")
+	}
+	if n := strings.Count(rec.String(), "data:"); n != 1 {
+		t.Errorf("got %d frames, want only the initial one:\n%s", n, rec.String())
+	}
+}
+
+// A client that falls behind must catch up to the newest state, not stall on
+// whatever fit in a buffer while newer updates were dropped.
+func TestSSESlowClientGetsLatestState(t *testing.T) {
+	server := newSSETestServer(t)
+	server.updateState(events.StateUpdateEvent{Source: events.SourceNefit, CurrentTemperature: 10})
+
+	rec := newSSERecorder(true)
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/events", nil)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		server.handleSSE(rec, req)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	<-rec.blocked
+	for i := 11; i <= 30; i++ {
+		server.updateState(events.StateUpdateEvent{Source: events.SourceNefit, CurrentTemperature: float64(i)})
+	}
+	close(rec.gate)
+
+	waitFor(t, "latest state", func() bool {
+		return strings.Contains(rec.String(), `"current_temperature":30,`)
+	})
 }

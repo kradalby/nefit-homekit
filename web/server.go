@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/chasefleming/elem-go"
@@ -55,10 +55,16 @@ type Server struct {
 	// uptime readout.
 	startedAt time.Time
 
-	// Current state for SSE clients
-	mu           sync.RWMutex
-	currentState *events.StateUpdateEvent
-	sseClients   map[chan events.StateUpdateEvent]struct{}
+	state      atomic.Pointer[snapshot]
+	sseClients atomic.Int64
+}
+
+// snapshot is an immutable view of the latest state. next is closed when a
+// newer snapshot replaces this one, waking every SSE stream at once without
+// per-client channels to register, fill or close.
+type snapshot struct {
+	ev   *events.StateUpdateEvent // nil until the first update
+	next chan struct{}
 }
 
 // New creates a new web server.
@@ -125,18 +131,18 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Server, err
 	}
 
 	s := &Server{
-		cfg:        cfg,
-		logger:     logger,
-		bus:        bus,
-		client:     client,
-		kraweb:     krawebServer,
-		ctx:        ctx,
-		cancel:     cancel,
-		qrCode:     qrCodeStr,
-		setupID:    cfg.NefitSerial,
-		startedAt:  time.Now(),
-		sseClients: make(map[chan events.StateUpdateEvent]struct{}),
+		cfg:       cfg,
+		logger:    logger,
+		bus:       bus,
+		client:    client,
+		kraweb:    krawebServer,
+		ctx:       ctx,
+		cancel:    cancel,
+		qrCode:    qrCodeStr,
+		setupID:   cfg.NefitSerial,
+		startedAt: time.Now(),
 	}
+	s.state.Store(&snapshot{next: make(chan struct{})})
 
 	// Register routes with kraweb
 	s.kraweb.Handle("/", http.HandlerFunc(s.handleIndex))
@@ -198,20 +204,10 @@ func (s *Server) handleStateUpdates() {
 	}
 }
 
-// updateState updates current state and broadcasts to all SSE clients.
+// updateState publishes event as the latest snapshot and wakes SSE streams.
 func (s *Server) updateState(event events.StateUpdateEvent) {
-	s.mu.Lock()
-	s.currentState = &event
-
-	// Broadcast to all SSE clients
-	for client := range s.sseClients {
-		select {
-		case client <- event:
-		default:
-			// Client is slow or disconnected, skip
-		}
-	}
-	s.mu.Unlock()
+	old := s.state.Swap(&snapshot{ev: &event, next: make(chan struct{})})
+	close(old.next)
 
 	s.logger.Debug(
 		"state updated",
@@ -236,11 +232,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.RLock()
-	state := s.currentState
-	s.mu.RUnlock()
-
-	html := s.renderThermostatUI(state)
+	html := s.renderThermostatUI(s.state.Load().ev)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	s.writeBytes(w, []byte(html))
@@ -258,51 +250,35 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	// Create client channel
-	clientChan := make(chan events.StateUpdateEvent, 10)
-
-	// Register client
-	s.mu.Lock()
-	s.sseClients[clientChan] = struct{}{}
-	s.mu.Unlock()
-
-	// Send current state immediately
-	s.mu.RLock()
-	if s.currentState != nil {
-		clientChan <- *s.currentState
-	}
-	s.mu.RUnlock()
-
-	// Cleanup on disconnect
-	defer func() {
-		s.mu.Lock()
-		delete(s.sseClients, clientChan)
-		s.mu.Unlock()
-		close(clientChan)
-	}()
-
-	// Stream events
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
 		return
 	}
 
+	s.sseClients.Add(1)
+	defer s.sseClients.Add(-1)
+
+	// Each pass sends the newest snapshot, so a slow client skips states it
+	// missed rather than falling behind on stale ones.
+	snap := s.state.Load()
 	for {
-		select {
-		case event := <-clientChan:
-			data, err := json.Marshal(event)
+		if snap.ev != nil {
+			data, err := json.Marshal(snap.ev)
 			if err != nil {
 				s.logger.Error("failed to marshal event", slog.Any("error", err))
-				continue
+			} else {
+				if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+					s.logger.Debug("sse write failed", slog.Any("error", err))
+					return
+				}
+				flusher.Flush()
 			}
+		}
 
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
-				s.logger.Debug("sse write failed", slog.Any("error", err))
-				return
-			}
-			flusher.Flush()
-
+		select {
+		case <-snap.next:
+			snap = s.state.Load()
 		case <-r.Context().Done():
 			return
 		case <-s.ctx.Done():
@@ -524,15 +500,7 @@ func (s *Server) Close() error {
 
 	s.publishConnectionStatus(events.ConnectionStatusDisconnected, "")
 
-	// Close all SSE clients
-	s.mu.Lock()
-	for client := range s.sseClients {
-		close(client)
-	}
-	s.sseClients = make(map[chan events.StateUpdateEvent]struct{})
-	s.mu.Unlock()
-
-	// Cancel context to stop background goroutines
+	// Ends SSE streams along with the background goroutines.
 	s.cancel()
 
 	s.logger.Info("web server shut down complete")
@@ -732,10 +700,8 @@ func (s *Server) renderHomekitBanner() elem.Node {
 
 // renderEventBusDebug renders the EventBus debugger interface.
 func (s *Server) renderEventBusDebug() string {
-	s.mu.RLock()
-	sseClientCount := len(s.sseClients)
-	currentState := s.currentState
-	s.mu.RUnlock()
+	sseClientCount := s.sseClients.Load()
+	currentState := s.state.Load().ev
 
 	stateJSON := "No state available"
 	if currentState != nil {
