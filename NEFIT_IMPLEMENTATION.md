@@ -8,7 +8,7 @@ This document captures the implementation decisions that sit behind the `README`
 - Use the flake apps instead of bespoke scripts: `nix run .#test`, `.#test-race`, `.#lint`, `.#coverage`, and `nix build .#nefit-homekit`.
 - Run `nix flake check --all-systems` before every push; it exercises the package, overlay, module evaluation, and the VM-based module/integration tests (`.#checks.x86_64-linux.*`).
 - GitHub Actions runs the exact commands above on Linux and macOS matrices, so local runs must stay green.
-- Vendor hashes are pinned (`sha256-bK/N3j3vjRHuvo16I/B8B/iPcf6tZxpEzRFIh+a0SgY=`). When Go dependencies change, update the hash and immediately re-run `nix flake check`. Switch to `modSha256` once upstream nixpkgs exposes proxy-less module support.
+- The vendor hash is pinned as `vendorHash` in `flake.nix`. When Go dependencies change, update it and immediately re-run `nix flake check`. Switch to `modSha256` once upstream nixpkgs exposes proxy-less module support.
 
 ## Architecture at a glance
 
