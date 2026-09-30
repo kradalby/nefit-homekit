@@ -378,3 +378,20 @@ func TestStatusFetchesDoNotOverlap(t *testing.T) {
 		t.Fatalf("%d status fetches ran concurrently, want 1", fake.maxInflight)
 	}
 }
+
+// StateUpdateEvent has no outdoor temperature, and fetching it costs a second
+// round trip through nefit-go's request queue on every refresh.
+func TestFetchSkipsOutdoorTemperature(t *testing.T) {
+	c, _, cleanup := newTestClient(t)
+	defer cleanup()
+
+	fake := &fakeBackend{}
+	c.nefitClient = fake
+
+	if err := c.fetchAndPublishStatus(false); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fake.Calls(), []string{"Status(false)"}; !slices.Equal(got, want) {
+		t.Fatalf("calls = %v, want %v", got, want)
+	}
+}
