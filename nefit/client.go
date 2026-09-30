@@ -232,8 +232,9 @@ func jitter(d time.Duration) time.Duration {
 
 // refreshLoop is the only goroutine that fetches and publishes status, so an
 // older response can never overwrite a newer one. It outlives sessions and
-// fetches on request or on an interval; the poll also exposes a silently dead
-// session, which nefit-go retires once a request goes unanswered.
+// fetches on request or on an interval while one is up; the poll also exposes
+// a silently dead session, which nefit-go retires once a request goes
+// unanswered.
 func (c *Client) refreshLoop() {
 	ticker := time.NewTicker(c.cfg.XMPPKeepaliveInterval)
 	defer ticker.Stop()
@@ -509,6 +510,17 @@ func (c *Client) withTimeout(f func(ctx context.Context) error) error {
 func (c *Client) syncState(force bool) {
 	if c.ctx.Err() != nil {
 		return
+	}
+
+	// nefit-go's Status logs in when no session is up, which would redial
+	// behind connectWithRetry's backoff; it refreshes once reconnected.
+	select {
+	case <-c.nefitClient.Done():
+		if force {
+			c.republishLastState()
+		}
+		return
+	default:
 	}
 
 	if err := c.fetchAndPublishStatus(force); err != nil {

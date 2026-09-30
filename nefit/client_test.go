@@ -45,6 +45,8 @@ type fakeBackend struct {
 	closed    bool
 	// modeErr fails SetUserMode.
 	modeErr error
+	// dials counts logins, including those Status starts on its own.
+	dials int
 }
 
 func (f *fakeBackend) record(call string) {
@@ -70,17 +72,25 @@ func (f *fakeBackend) Connect(ctx context.Context) error {
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	return f.sessionLocked()
+}
+
+// sessionLocked logs in unless a session is live, like nefit-go does for
+// Connect and for every request.
+func (f *fakeBackend) sessionLocked() error {
 	if f.closed {
 		return errors.New("client closed")
 	}
+	if f.session != nil && !isClosed(f.session) {
+		return nil
+	}
+	f.dials++
 	if f.connectErr != nil {
 		return f.connectErr
 	}
-	if f.session == nil || isClosed(f.session) {
-		f.session = make(chan struct{})
-		if f.flapping {
-			close(f.session)
-		}
+	f.session = make(chan struct{})
+	if f.flapping {
+		close(f.session)
 	}
 	return nil
 }
@@ -122,6 +132,10 @@ func (f *fakeBackend) Subscribe(nefitclient.EventHandler) {}
 func (f *fakeBackend) Status(_ context.Context, outdoor bool) (*types.Status, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, fmt.Sprintf("Status(%v)", outdoor))
+	if err := f.sessionLocked(); err != nil {
+		f.mu.Unlock()
+		return nil, err
+	}
 	if f.unanswered > 0 {
 		f.unanswered--
 		f.endSessionLocked()
@@ -154,6 +168,19 @@ func (f *fakeBackend) SetUserMode(_ context.Context, mode string) error {
 func (f *fakeBackend) SetHotWaterSupply(_ context.Context, enabled bool) error {
 	f.record(fmt.Sprintf("SetHotWaterSupply(%v)", enabled))
 	return nil
+}
+
+func (f *fakeBackend) count(call string) int {
+	return len(slices.DeleteFunc(f.Calls(), func(s string) bool { return s != call }))
+}
+
+func (f *fakeBackend) connects() int { return f.count("Connect") }
+func (f *fakeBackend) polls() int    { return f.count("Status(false)") }
+
+func (f *fakeBackend) dialCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.dials
 }
 
 func isClosed(ch chan struct{}) bool {
@@ -470,6 +497,9 @@ func TestStatusFetchesDoNotOverlap(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	c.ctx = ctx
+	if err := fake.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -488,7 +518,7 @@ func TestStatusFetchesDoNotOverlap(t *testing.T) {
 	wg.Go(func() { c.requestRefresh(true) })
 	wg.Wait()
 
-	waitFor(t, "a status fetch", func() bool { return len(fake.Calls()) > 0 })
+	waitFor(t, "a status fetch", func() bool { return slices.Contains(fake.Calls(), "Status(false)") })
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
 	if fake.maxInflight > 1 {
@@ -655,17 +685,45 @@ func TestShortSessionsBackOff(t *testing.T) {
 		startWithFake(t, fake)
 		synctest.Wait()
 
-		connects := func() int {
-			return len(slices.DeleteFunc(fake.Calls(), func(s string) bool { return s != "Connect" }))
-		}
-		if n := connects(); n != 1 {
+		if n := fake.connects(); n != 1 {
 			t.Fatalf("%d connects before any backoff elapsed, want 1", n)
 		}
 
 		// Jitter never shortens a wait below half the backoff.
 		time.Sleep(time.Minute)
-		if n, most := connects(), 1+int(time.Minute/(time.Second/2)); n > most {
+		synctest.Wait()
+		if n, most := fake.connects(), 1+int(time.Minute/(time.Second/2)); n > most {
 			t.Fatalf("%d connects in a minute, want at most %d", n, most)
+		}
+		// The refresh each session queues must not log in once it ended.
+		if dials, connects := fake.dialCount(), fake.connects(); dials != connects {
+			t.Fatalf("%d logins for %d connects", dials, connects)
+		}
+	})
+}
+
+// nefit-go's Status logs in when no session is up, so polls during the
+// reconnect backoff would redial at the poll rate. A live session still gets
+// polled, which is how a silently dead one is found.
+func TestPollsWaitOutBackoff(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fake := &fakeBackend{connectErr: errors.New("unreachable")}
+		startWithFake(t, fake)
+
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		if dials, connects := fake.dialCount(), fake.connects(); dials != connects {
+			t.Fatalf("%d logins for %d connects while unreachable", dials, connects)
+		}
+
+		fake.mu.Lock()
+		fake.connectErr = nil
+		fake.mu.Unlock()
+		before := fake.polls()
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		if n, least := fake.polls()-before, int(time.Minute/time.Second)/2; n < least {
+			t.Fatalf("%d polls in a minute once connected, want at least %d", n, least)
 		}
 	})
 }
