@@ -457,15 +457,17 @@ func (c *Client) handleCommands(sub *eventbus.Subscriber[events.CommandEvent]) {
 
 // apply pushes every change in d to the Nefit backend. Mode goes first so the
 // setpoint and hot water land on the mode they were meant for; nefit-go picks
-// the hot water endpoint by the current mode.
+// the hot water endpoint by the current mode, so hot water waits on the mode.
 func (c *Client) apply(d desired) error {
 	var errs []error
 
+	var modeErr error
 	if d.mode != nil {
 		c.logger.Info("setting mode", slog.String("mode", *d.mode))
-		errs = append(errs, c.withTimeout(func(ctx context.Context) error {
+		modeErr = c.withTimeout(func(ctx context.Context) error {
 			return c.setUserMode(ctx, *d.mode)
-		}))
+		})
+		errs = append(errs, modeErr)
 	}
 
 	if d.temperature != nil {
@@ -479,6 +481,9 @@ func (c *Client) apply(d desired) error {
 	}
 
 	if d.hotWater != nil {
+		if modeErr != nil {
+			return errors.Join(append(errs, errors.New("skipped hot water: mode not set"))...)
+		}
 		c.logger.Info("setting hot water", slog.Bool("enabled", *d.hotWater))
 		errs = append(errs, c.withTimeout(func(ctx context.Context) error {
 			if err := c.nefitClient.SetHotWaterSupply(ctx, *d.hotWater); err != nil {
