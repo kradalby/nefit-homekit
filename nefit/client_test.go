@@ -275,7 +275,7 @@ func TestPublishConnectionStatus(t *testing.T) {
 	sub := eventbus.Subscribe[events.ConnectionStatusEvent](metricsClient)
 	defer sub.Close()
 
-	client.publishConnectionStatus(events.ConnectionStatusConnected, "")
+	client.publishConnectionStatus(events.ConnectionStatusConnected, "", 0)
 
 	select {
 	case evt := <-sub.Events():
@@ -327,4 +327,29 @@ func TestCommandsInDebounceWindowAllApply(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("commands applied = %v, want %v", got, want)
 	}
+}
+
+// Close publishes a connection status while connectWithRetry is still counting
+// failed attempts; run under -race.
+func TestCloseDuringReconnect(t *testing.T) {
+	c, _, cleanup := newTestClient(t)
+	defer cleanup()
+
+	fake := &fakeBackend{connectErr: errors.New("unreachable")}
+	c.nefitClient = fake
+	c.cfg.XMPPReconnectBackoff = time.Millisecond
+	c.cfg.XMPPMaxReconnectWait = time.Millisecond
+	c.ctx, c.cancel = context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c.connectWithRetry()
+	}()
+
+	waitFor(t, "a few failed attempts", func() bool {
+		return len(fake.Calls()) >= 3
+	})
+	_ = c.Close()
+	<-done
 }
