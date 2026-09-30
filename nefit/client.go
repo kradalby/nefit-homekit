@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	nefitclient "github.com/kradalby/nefit-go/client"
@@ -59,10 +60,10 @@ type Client struct {
 	stateMu     sync.RWMutex
 	lastEvent   *events.StateUpdateEvent
 
-	// refreshStatus re-reads the full status from the backend and publishes it.
-	// A field rather than a direct call so tests can observe that a push
-	// notification triggers a refresh without a live backend connection.
-	refreshStatus func(force bool) error
+	// refresh wakes refreshLoop. One slot: requests made while a fetch runs
+	// coalesce into a single follow-up fetch.
+	refresh      chan struct{}
+	forceRefresh atomic.Bool
 }
 
 // New creates a new Nefit client.
@@ -107,8 +108,8 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Client, err
 		nefitClient: nefitClient,
 		ctx:         ctx,
 		cancel:      cancel,
+		refresh:     make(chan struct{}, 1),
 	}
-	c.refreshStatus = c.fetchAndPublishStatus
 
 	logger.Info(
 		"nefit client created",
@@ -161,8 +162,7 @@ func (c *Client) connectWithRetry() {
 			c.logger.Info("connected to nefit backend")
 			c.publishConnectionStatus(events.ConnectionStatusConnected, "", failures)
 
-			// Start periodic status polling to keep connection alive
-			go c.pollStatus()
+			go c.refreshLoop()
 
 			// Wait for connection to close or context to be canceled
 			<-c.ctx.Done()
@@ -192,26 +192,35 @@ func (c *Client) connectWithRetry() {
 	}
 }
 
-// pollStatus periodically requests status to keep connection alive and get latest state.
-func (c *Client) pollStatus() {
+// refreshLoop is the only goroutine that fetches and publishes status, so an
+// older response can never overwrite a newer one. It polls on an interval to
+// keep the connection alive and otherwise fetches on request.
+func (c *Client) refreshLoop() {
 	ticker := time.NewTicker(c.cfg.XMPPKeepaliveInterval)
 	defer ticker.Stop()
-
-	c.logger.Debug(
-		"starting status polling",
-		slog.Duration("interval", c.cfg.XMPPKeepaliveInterval),
-	)
 
 	for {
 		select {
 		case <-ticker.C:
-			if err := c.fetchAndPublishStatus(false); err != nil {
-				c.logger.Warn("failed to fetch status", slog.Any("error", err))
-			}
+		case <-c.refresh:
 		case <-c.ctx.Done():
-			c.logger.Debug("stopping status polling")
 			return
 		}
+
+		c.syncState(c.forceRefresh.Swap(false))
+	}
+}
+
+// requestRefresh asks refreshLoop for a fresh status without blocking. force
+// sticks until a fetch consumes it, even when requests coalesce.
+func (c *Client) requestRefresh(force bool) {
+	if force {
+		c.forceRefresh.Store(true)
+	}
+
+	select {
+	case c.refresh <- struct{}{}:
+	default:
 	}
 }
 
@@ -246,15 +255,8 @@ func (c *Client) handleNefitEvent(uri string, _ any) {
 		slog.String("uri", uri),
 	)
 
-	if uri != types.URIStatus {
-		return
-	}
-
-	if err := c.refreshStatus(false); err != nil {
-		c.logger.Warn(
-			"failed to refresh status after push notification",
-			slog.Any("error", err),
-		)
+	if uri == types.URIStatus {
+		c.requestRefresh(false)
 	}
 }
 
@@ -399,7 +401,7 @@ func (c *Client) handleCommands(sub *eventbus.Subscriber[events.CommandEvent]) {
 				c.logger.Error("failed to apply commands", slog.Any("error", err))
 			}
 			pending = desired{}
-			c.syncState(err != nil)
+			c.requestRefresh(err != nil)
 		case <-c.ctx.Done():
 			c.logger.Info("stopping command handler")
 			stopTimer()
@@ -452,7 +454,8 @@ func (c *Client) withTimeout(f func(ctx context.Context) error) error {
 	return f(ctx)
 }
 
-// syncState fetches the latest status and publishes it so every component sees the same view.
+// syncState fetches the latest status and publishes it so every component sees
+// the same view. Only refreshLoop may call it.
 func (c *Client) syncState(force bool) {
 	if c.ctx.Err() != nil {
 		return

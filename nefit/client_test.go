@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -125,15 +124,14 @@ func newTestClient(t *testing.T) (*Client, *events.Bus, func()) {
 	cfg.SetListenerAddrsForTesting("127.0.0.1:12345", "127.0.0.1:8080")
 
 	client := &Client{
-		cfg:    cfg,
-		logger: logger,
-		bus:    bus,
-		client: busClient,
-		ctx:    context.Background(),
-		cancel: func() {},
+		cfg:     cfg,
+		logger:  logger,
+		bus:     bus,
+		client:  busClient,
+		ctx:     context.Background(),
+		cancel:  func() {},
+		refresh: make(chan struct{}, 1),
 	}
-
-	client.refreshStatus = func(bool) error { return nil }
 
 	cleanup := func() {
 		_ = bus.Close()
@@ -223,19 +221,18 @@ func TestHeatingActiveAcceptsBothBoilerSpellings(t *testing.T) {
 
 // A status push carries the device's abbreviated wire keys and may be partial,
 // so the handler must re-read the full status through nefit-go rather than
-// decode the payload itself. Before nefit-go started populating URI, this
-// branch was unreachable and the mis-keyed decode it used to do went unnoticed.
+// decode the payload itself.
 func TestHandleNefitEventRefreshesStatus(t *testing.T) {
 	client, _, cleanup := newTestClient(t)
 	defer cleanup()
 
-	calls := 0
-	client.refreshStatus = func(force bool) error {
-		if force {
-			t.Errorf("refreshStatus force = true, want false")
+	pending := func() bool {
+		select {
+		case <-client.refresh:
+			return true
+		default:
+			return false
 		}
-		calls++
-		return nil
 	}
 
 	// The raw device payload: abbreviated keys, nested under "value".
@@ -243,24 +240,17 @@ func TestHandleNefitEventRefreshesStatus(t *testing.T) {
 		"id":    types.URIStatus,
 		"value": map[string]any{"IHT": 19.0, "TSP": 17.5, "BAI": "No", "UMD": nefitModeClock},
 	})
-	if calls != 1 {
-		t.Fatalf("status push triggered %d refreshes, want 1", calls)
+	if !pending() {
+		t.Fatal("status push did not request a refresh")
+	}
+	if client.forceRefresh.Load() {
+		t.Error("status push forced a refresh")
 	}
 
 	client.handleNefitEvent(types.URIOutdoorTemp, map[string]any{"id": types.URIOutdoorTemp})
-	if calls != 1 {
-		t.Fatalf("non-status push triggered a refresh, total = %d, want 1", calls)
+	if pending() {
+		t.Fatal("non-status push requested a refresh")
 	}
-}
-
-func TestHandleNefitEventLogsRefreshFailure(t *testing.T) {
-	client, _, cleanup := newTestClient(t)
-	defer cleanup()
-
-	client.refreshStatus = func(bool) error { return errors.New("backend down") }
-
-	// Must not panic or propagate; the poll loop is the backstop.
-	client.handleNefitEvent(types.URIStatus, nil)
 }
 
 func TestPublishConnectionStatus(t *testing.T) {
@@ -312,17 +302,13 @@ func TestCommandsInDebounceWindowAllApply(t *testing.T) {
 	bus.PublishCommand(hk, events.CommandEvent{Source: events.SourceHomeKit, CommandType: events.CommandTypeSetTemperature, TargetTemperature: &temp})
 	bus.PublishCommand(hk, events.CommandEvent{Source: events.SourceHomeKit, CommandType: events.CommandTypeSetMode, Mode: &mode})
 
-	waitFor(t, "sync after commands", func() bool {
-		return slices.Contains(fake.Calls(), "Status(false)") || slices.Contains(fake.Calls(), "Status(true)")
-	})
-
-	// Mode goes first: the setpoint and hot water endpoints depend on it.
-	var got []string
-	for _, call := range fake.Calls() {
-		if !strings.HasPrefix(call, "Status") {
-			got = append(got, call)
-		}
+	select {
+	case <-c.refresh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for refresh after commands")
 	}
+
+	got := fake.Calls()
 	want := []string{"SetUserMode(manual)", "SetTemperature(21)", "SetHotWaterSupply(true)"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("commands applied = %v, want %v", got, want)
@@ -352,4 +338,43 @@ func TestCloseDuringReconnect(t *testing.T) {
 	})
 	_ = c.Close()
 	<-done
+}
+
+// nefit-go runs each push handler on its own goroutine, and polls and
+// post-command syncs fetch too. Overlapping fetches can publish out of order,
+// letting an older status overwrite a newer one, so they must run one at a
+// time.
+func TestStatusFetchesDoNotOverlap(t *testing.T) {
+	c, _, cleanup := newTestClient(t)
+	defer cleanup()
+
+	fake := &fakeBackend{statusDelay: 20 * time.Millisecond}
+	c.nefitClient = fake
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c.ctx = ctx
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c.refreshLoop()
+	}()
+	// The loop publishes on the bus, so it must stop before cleanup closes it.
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	var wg sync.WaitGroup
+	for range 5 {
+		wg.Go(func() { c.handleNefitEvent(types.URIStatus, nil) })
+	}
+	wg.Go(func() { c.requestRefresh(true) })
+	wg.Wait()
+
+	waitFor(t, "a status fetch", func() bool { return len(fake.Calls()) > 0 })
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.maxInflight > 1 {
+		t.Fatalf("%d status fetches ran concurrently, want 1", fake.maxInflight)
+	}
 }
