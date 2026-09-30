@@ -395,3 +395,26 @@ func TestFetchSkipsOutdoorTemperature(t *testing.T) {
 		t.Fatalf("calls = %v, want %v", got, want)
 	}
 }
+
+// Shutdown closes the bus right after the client; a fetch still in flight must
+// not publish onto the closed bus.
+func TestCloseWaitsForInFlightFetch(t *testing.T) {
+	c, bus, cleanup := newTestClient(t)
+	defer cleanup()
+
+	fake := &fakeBackend{statusDelay: 50 * time.Millisecond}
+	c.nefitClient = fake
+	c.ctx, c.cancel = context.WithCancel(context.Background())
+
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	c.requestRefresh(false)
+	waitFor(t, "fetch in flight", func() bool {
+		return slices.Contains(fake.Calls(), "Status(false)")
+	})
+
+	_ = c.Close()
+	_ = bus.Close()
+	time.Sleep(2 * fake.statusDelay)
+}

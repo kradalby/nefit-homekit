@@ -64,6 +64,10 @@ type Client struct {
 	// coalesce into a single follow-up fetch.
 	refresh      chan struct{}
 	forceRefresh atomic.Bool
+
+	// wg tracks the goroutines that publish, so Close can outlast them and
+	// nothing publishes onto a bus closed right after.
+	wg sync.WaitGroup
 }
 
 // New creates a new Nefit client.
@@ -128,10 +132,10 @@ func (c *Client) Start() error {
 
 	// Subscribe before returning so commands published right after Start are
 	// not lost.
-	go c.handleCommands(eventbus.Subscribe[events.CommandEvent](c.client))
+	sub := eventbus.Subscribe[events.CommandEvent](c.client)
+	c.wg.Go(func() { c.handleCommands(sub) })
 
-	// Connect with retry logic
-	go c.connectWithRetry()
+	c.wg.Go(c.connectWithRetry)
 
 	c.logger.Info("nefit client started successfully")
 	return nil
@@ -162,7 +166,7 @@ func (c *Client) connectWithRetry() {
 			c.logger.Info("connected to nefit backend")
 			c.publishConnectionStatus(events.ConnectionStatusConnected, "", failures)
 
-			go c.refreshLoop()
+			c.wg.Go(c.refreshLoop)
 
 			// Wait for connection to close or context to be canceled
 			<-c.ctx.Done()
@@ -530,6 +534,8 @@ func (c *Client) Close() error {
 			c.logger.Warn("error closing nefit client", slog.Any("error", err))
 		}
 	}
+
+	c.wg.Wait()
 
 	c.logger.Info("nefit client shut down complete")
 	return nil
