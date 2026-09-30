@@ -34,13 +34,25 @@ const (
 // pin HeatingActive to false.
 var heatingBoilerStates = []string{"central heating", "hot water", "CH", "HW"}
 
+// backend is the part of the nefit-go client this package drives, so tests can
+// substitute a fake for the XMPP connection.
+type backend interface {
+	Connect(ctx context.Context) error
+	Close() error
+	Subscribe(handler nefitclient.EventHandler)
+	Status(ctx context.Context, includeOutdoorTemp bool) (*types.Status, error)
+	SetTemperature(ctx context.Context, temperature float64) error
+	SetUserMode(ctx context.Context, mode string) error
+	SetHotWaterSupply(ctx context.Context, enabled bool) error
+}
+
 // Client manages the persistent connection to the Nefit Easy thermostat.
 type Client struct {
 	cfg          *config.Config
 	logger       *slog.Logger
 	bus          *events.Bus
 	client       *eventbus.Client
-	nefitClient  *nefitclient.Client
+	nefitClient  backend
 	ctx          context.Context
 	cancel       context.CancelFunc
 	reconnectNum int
