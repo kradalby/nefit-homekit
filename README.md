@@ -418,3 +418,26 @@ MIT
 ## Contributing
 
 See [NEFIT_IMPLEMENTATION.md](NEFIT_IMPLEMENTATION.md) for the detailed implementation plan and architectural decisions.
+
+### Embedded thermostat server
+
+`NEFITHK_NEFIT_MODE` selects `cloud` (default), `offline`, or `both`. The embedded modes run nefit-go's device XMPP listener directly and reuse this bridge's existing connection loop, command API and subscriptions. No separate nefit CLI process is needed.
+
+```sh
+NEFITHK_NEFIT_MODE=both
+NEFITHK_NEFIT_DEVICE_IP=192.168.156.96
+NEFITHK_NEFIT_XMPP_ADDR=0.0.0.0:5222
+NEFITHK_NEFIT_UPDATES=allow
+```
+
+Redirect the thermostat's cloud TCP/5222 connection or provide a device-scoped DNS override, and allow only its source IP to reach the listener. For DNS overrides, `NEFITHK_NEFIT_UPSTREAM` can specify a real Bosch IP:port to avoid a forwarding loop. `both` preserves the official app's cloud path; `offline` serves local controls without that path. Time/weather services are forwarded in `both` and remain unresolved offline. Update policy `block` filters configured XMPP update services and update writes, not arbitrary firmware downloads.
+
+The NixOS module exposes `nefit.mode`, `nefit.deviceIP`, `nefit.upstream`, `nefit.updates`, `bindAddresses.xmpp` and `ports.xmpp`. `openFirewall` also opens the XMPP TCP port for embedded modes; restrict it to the device on your network firewall.
+
+The nefit-go server API is pinned in `go.mod`, so normal builds require no local workspace. To develop both repos together, create an optional Go workspace:
+
+```sh
+go work init . /path/to/nefit-go
+```
+
+The local workspace is ignored by Git. When updating nefit-go, validate with `GOWORK=off` and refresh the Nix vendor hash.

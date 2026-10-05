@@ -35,3 +35,5 @@ nix flake check
 - Mirror structure/API decisions into `tasmota-nefit` when reasonable.
 - Keep documentation concise (no emojis/faff); update README + this file when workflows change.
 - When adding reusable helpers, consider pushing them to `../kra` or exporting them here for other repos.
+
+- Joint development with nefit-go can use an ignored local Go workspace. Embedded modes use `NEFITHK_NEFIT_MODE`, `NEFITHK_NEFIT_DEVICE_IP` and `NEFITHK_NEFIT_XMPP_ADDR`; validate dependency updates with `GOWORK=off` and refresh the Nix vendor hash.

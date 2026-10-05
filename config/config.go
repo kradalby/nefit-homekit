@@ -30,6 +30,13 @@ type Config struct {
 	NefitAccessKey string `env:"NEFITHK_NEFIT_ACCESS_KEY,required=true"`
 	NefitPassword  string `env:"NEFITHK_NEFIT_PASSWORD,required=true"`
 
+	// Embedded device server (cloud remains the default).
+	NefitMode         string `env:"NEFITHK_NEFIT_MODE,default=cloud"`
+	NefitXMPPAddr     string `env:"NEFITHK_NEFIT_XMPP_ADDR,default=0.0.0.0:5222"`
+	NefitDeviceIP     string `env:"NEFITHK_NEFIT_DEVICE_IP"`
+	NefitUpstream     string `env:"NEFITHK_NEFIT_UPSTREAM"`
+	NefitUpdatePolicy string `env:"NEFITHK_NEFIT_UPDATES,default=allow"`
+
 	// HomeKit Configuration
 	HAPPin         string `env:"NEFITHK_HAP_PIN,default=00102003"`
 	HAPStoragePath string `env:"NEFITHK_HAP_STORAGE_PATH,default=/var/lib/nefit-homekit"`
@@ -84,6 +91,9 @@ func Load() (*Config, error) {
 // Validate checks that the configuration is valid.
 // Note: Required field validation is handled by go-env library.
 func (c *Config) Validate() error {
+	if err := c.validateNefit(); err != nil {
+		return err
+	}
 	// Validate HAP pin format (must be 8 digits)
 	if len(c.HAPPin) != 8 {
 		return fmt.Errorf("HAP pin must be exactly 8 digits, got %d", len(c.HAPPin))
@@ -215,4 +225,23 @@ func validatePortRange(name string, port int) error {
 func envVarSet(key string) bool {
 	_, ok := os.LookupEnv(key)
 	return ok
+}
+
+func (c *Config) validateNefit() error {
+	if c.NefitMode != "" && c.NefitMode != "cloud" && c.NefitMode != "offline" && c.NefitMode != "both" {
+		return fmt.Errorf("invalid Nefit mode %q", c.NefitMode)
+	}
+	if c.NefitUpdatePolicy != "" && c.NefitUpdatePolicy != "allow" && c.NefitUpdatePolicy != "block" {
+		return fmt.Errorf("invalid Nefit update policy %q", c.NefitUpdatePolicy)
+	}
+	if c.NefitMode == "offline" || c.NefitMode == "both" {
+		if _, err := netip.ParseAddr(c.NefitDeviceIP); err != nil {
+			return fmt.Errorf("nefit device IP is required for embedded server mode: %w", err)
+		}
+		if _, err := netip.ParseAddrPort(c.NefitXMPPAddr); err != nil {
+			return fmt.Errorf("invalid Nefit XMPP addr: %w", err)
+		}
+	}
+
+	return nil
 }
