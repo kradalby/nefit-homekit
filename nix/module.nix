@@ -112,7 +112,42 @@ in
       description = "Group under which nefit-homekit runs.";
     };
 
+    nefit = {
+      mode = mkOption {
+        type = types.enum [
+          "cloud"
+          "offline"
+          "both"
+        ];
+        default = "cloud";
+        description = "Cloud client or embedded device server mode.";
+      };
+      deviceIP = mkOption {
+        type = types.str;
+        default = "";
+        description = "Expected thermostat source IP for embedded mode.";
+      };
+      upstream = mkOption {
+        type = types.str;
+        default = "";
+        description = "Bosch host:port or resolved IP:port, bypassing local DNS overrides.";
+      };
+      updates = mkOption {
+        type = types.enum [
+          "allow"
+          "block"
+        ];
+        default = "allow";
+        description = "Policy for firmware-related XMPP services and update writes.";
+      };
+    };
+
     ports = {
+      xmpp = mkOption {
+        type = types.port;
+        default = 5222;
+        description = "Embedded thermostat XMPP listener port.";
+      };
       hap = mkOption {
         type = types.port;
         default = 12345;
@@ -127,6 +162,11 @@ in
     };
 
     bindAddresses = {
+      xmpp = mkOption {
+        type = types.str;
+        default = "0.0.0.0";
+        description = "Embedded thermostat XMPP listener address.";
+      };
       hap = mkOption {
         type = types.str;
         default = "0.0.0.0";
@@ -214,6 +254,11 @@ in
             if cfg.tailscale.hostname != null then cfg.tailscale.hostname else cfg.bridgeName;
 
           envVars = {
+            NEFITHK_NEFIT_MODE = cfg.nefit.mode;
+            NEFITHK_NEFIT_DEVICE_IP = cfg.nefit.deviceIP;
+            NEFITHK_NEFIT_UPSTREAM = cfg.nefit.upstream;
+            NEFITHK_NEFIT_UPDATES = cfg.nefit.updates;
+            NEFITHK_NEFIT_XMPP_ADDR = "${cfg.bindAddresses.xmpp}:${toString cfg.ports.xmpp}";
             NEFITHK_HAP_ADDR = "${cfg.bindAddresses.hap}:${toString cfg.ports.hap}";
             NEFITHK_WEB_ADDR = "${cfg.bindAddresses.web}:${toString cfg.ports.web}";
             NEFITHK_HAP_PORT = toString cfg.ports.hap;
@@ -312,7 +357,8 @@ in
         allowedTCPPorts = [
           cfg.ports.hap
           cfg.ports.web
-        ];
+        ]
+        ++ lib.optional (cfg.nefit.mode != "cloud") cfg.ports.xmpp;
         allowedUDPPorts = [
           5353 # mDNS for HomeKit discovery
         ];

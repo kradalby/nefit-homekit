@@ -100,7 +100,7 @@ func New(cfg *config.Config, logger *slog.Logger, bus *events.Bus) (*Client, err
 		Password:     cfg.NefitPassword,
 	}
 
-	nefitClient, err := nefitclient.NewClient(nefitCfg)
+	nefitClient, err := newBackend(cfg, nefitCfg, logger)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create nefit client: %w", err)
