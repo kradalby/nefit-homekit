@@ -25,7 +25,7 @@ func TestBackendModes(t *testing.T) {
 			})
 			if mode != "cloud" {
 				s, ok := b.(*nefitserver.Server)
-				if !ok || s.Mode() != nefitserver.Mode(mode) || s.LocalAddress() == nil {
+				if !ok || s.LocalAddress() == nil {
 					t.Fatal("embedded backend not selected")
 				}
 			}

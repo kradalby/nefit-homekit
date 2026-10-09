@@ -3,7 +3,7 @@ package nefit
 import (
 	"fmt"
 	"log/slog"
-	"net"
+	"net/netip"
 	"time"
 
 	nefitclient "github.com/kradalby/nefit-go/client"
@@ -24,7 +24,14 @@ func newBackend(cfg *config.Config, device nefitclient.Config, logger *slog.Logg
 	case "offline", "both":
 		device.ConnectTimeout = 90 * time.Second
 		device.RetryTimeout = 10 * time.Second
-		s, err := nefitserver.New(nefitserver.Config{Device: device, Mode: nefitserver.Mode(cfg.NefitMode), ListenAddress: cfg.NefitXMPPAddr, DeviceIP: net.ParseIP(cfg.NefitDeviceIP), UpstreamAddress: cfg.NefitUpstream, UpdatePolicy: nefitserver.UpdatePolicy(cfg.NefitUpdatePolicy)})
+		ip, err := netip.ParseAddr(cfg.NefitDeviceIP)
+		if err != nil {
+			return nil, fmt.Errorf("invalid Nefit device IP: %w", err)
+		}
+		s, err := nefitserver.New(nefitserver.Config{Device: device, LocalOptions: nefitclient.LocalOptions{
+			Mode: nefitclient.ServerMode(cfg.NefitMode), ListenAddress: cfg.NefitXMPPAddr, DeviceIP: ip,
+			UpstreamAddress: cfg.NefitUpstream, UpdatePolicy: nefitclient.UpdatePolicy(cfg.NefitUpdatePolicy),
+		}})
 		if err != nil {
 			return nil, err
 		}

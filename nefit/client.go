@@ -29,12 +29,8 @@ const (
 	commandDebounceInterval = 500 * time.Millisecond
 )
 
-// heatingBoilerStates are the types.Status.BoilerIndicator values that mean the
-// boiler is firing. nefit-go's client.Status runs the raw BAI wire value
-// through parseBoilerIndicator ("CH" -> "central heating", "HW" -> "hot
-// water"), while its types.Status doc comment still documents the raw form.
-// Accept both spellings so an upstream realignment either way cannot silently
-// pin HeatingActive to false.
+// Accept normalized indicators and raw protocol values so either
+// representation can report heating.
 var heatingBoilerStates = []string{"central heating", "hot water", "CH", "HW"}
 
 // backend is the part of the nefit-go client this package drives, so tests can
