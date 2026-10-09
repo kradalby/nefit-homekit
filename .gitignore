@@ -87,3 +87,7 @@ coverage.html
 .idea/
 *.swp
 *.swo
+
+# Local workspace for developing nefit-go together with this bridge.
+go.work
+go.work.sum

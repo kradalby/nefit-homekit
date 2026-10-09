@@ -8,7 +8,7 @@ require (
 	github.com/chasefleming/elem-go v0.36.0
 	github.com/kradalby/homekit-qr v0.0.0-20251117145710-0ea350a04eaa
 	github.com/kradalby/kra v0.0.0-20260930190439-99c91a9be880
-	github.com/kradalby/nefit-go v0.0.0-20260930190505-32cebf896ae2
+	github.com/kradalby/nefit-go v0.0.0-20261009092414-57181b5ff160
 	tailscale.com v1.102.5
 )
 
@@ -31,7 +31,6 @@ require (
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/hdevalence/ed25519consensus v0.2.0 // indirect
 	github.com/huin/goupnp v1.3.0 // indirect
@@ -60,7 +59,6 @@ require (
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xiam/to v0.0.0-20200126224905-d60d31e03561 // indirect
-	github.com/xmppo/go-xmpp v0.3.7 // indirect
 	go4.org/mem v0.0.0-20240501181205-ae6ca9944745 // indirect
 	go4.org/netipx v0.0.0-20260823151212-3075585bcbeb // indirect
 	golang.org/x/crypto v0.57.0 // indirect
